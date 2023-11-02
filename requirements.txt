@@ -1,0 +1,9 @@
+gremlinpython
+numpy
+psycopg2-binary
+pyjson5
+pytest
+python-dotenv
+requests
+SQLAlchemy
+tqdm

@@ -1,0 +1,42 @@
+@startuml
+title Bitcoin Data Graph
+
+class Owner {
+    id : int
+    name : String
+    get_sources() : Audit
+    get_sources_graph(max_depth: int) : Graph
+    get_total_balance() : float
+    get_all_transactions() : Transaction[]
+}
+
+class Address {
+    id : int
+    addr : String
+    get_total_balance() : int
+    get_unspent_outputs() : Output[]
+    get_sources() : Audit
+    get_sources_graph(max_depth: int) : Graph
+}
+
+class HaircutEdge {
+    value : float
+}
+
+class Output {
+    id : int
+    value : int
+    block_height : int
+    tx_index_in_block : int
+    index_in_tx : int
+    tainted : bool
+    spent : bool
+    is_coinbase : bool
+    label : String
+}
+
+Owner "0..*" <-- "0..1" Address : owner
+Address "1..*" <-- "0..1" Output : owner_address
+Output "0..*" -- "0..*" Output : SENT_TO {label="HaircutEdge"}t
+
+@enduml

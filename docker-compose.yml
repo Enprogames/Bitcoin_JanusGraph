@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+
+  app:
+    container_name: app
+    stdin_open: true
+    tty: true   # Enabled together with stdin_open so it won't raise an error when we are in pdb mode. Attach using `docker attach $(docker-compose ps -q web)`
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/app
+    ports:
+      - "5000:5000"
+    depends_on:
+      - btc_janusgraph
+      - btc_postgres_db
+
+  btc_postgres_db:
+    container_name: btc_postgres_db
+    image: postgres
+    restart: unless-stopped
+    ports:
+    - "${DATABASE_PORT}:${DATABASE_PORT}"
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+    environment:
+    - POSTGRES_DB=${DATABASE_NAME}
+    - POSTGRES_USER=${DATABASE_USER}
+    - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+
+  # gremlin-console:
+  #   image: janusgraph/janusgraph:latest
+  #   container_name: gremlin-console
+  #   environment:
+  #     GREMLINE_REMOTE_HOSTS: janusgraph
+  #     # JANUS_PROPS_TEMPLATE: cql-es
+  #     # janusgraph.storage.hostname: jce-cassandra
+  #     # janusgraph.index.search.hostname: jce-elastic
+  #   networks:
+  #     - jce-network
+  #   healthcheck:
+  #     test: ["CMD", "bin/gremlin.sh", "-e", "scripts/remote-connect.groovy"]
+  #     interval: 10s
+  #     timeout: 30s
+  #     retries: 3
+  #   depends_on:
+  #     - btc_janusgraph
+  #   volumes:
+  #     - ./janusgraph-data:/var/lib/janusgraph
+
+  btc_janusgraph:
+    image: janusgraph/janusgraph:latest
+    container_name: btc_janusgraph
+    # environment:
+      # JANUS_PROPS_TEMPLATE: cql-es
+      # janusgraph.storage.hostname: jce-cassandra
+      # janusgraph.index.search.hostname: jce-elastic
+    ports:
+      - "${JANUSGRAPH_PORT:-8182}:${JANUSGRAPH_PORT:-8182}"
+    networks:
+      - jce-network
+    volumes:
+      - btc_janusgraph_data:/var/lib/janusgraph
+    # entrypoint: ["/opt/janusgraph/bin/janusgraph-server.sh", "start"]
+
+networks:
+  jce-network:
+volumes:
+  btc_janusgraph_data:
