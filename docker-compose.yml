@@ -14,7 +14,7 @@ services:
     ports:
       - "5000:5000"
     depends_on:
-      - btc_janusgraph
+      # - btc_janusgraph
       - btc_postgres_db
 
   btc_postgres_db:
@@ -60,12 +60,28 @@ services:
     ports:
       - "${JANUSGRAPH_PORT:-8182}:${JANUSGRAPH_PORT:-8182}"
     networks:
-      - jce-network
+      - btc-network
     volumes:
       - btc_janusgraph_data:/var/lib/janusgraph
-    # entrypoint: ["/opt/janusgraph/bin/janusgraph-server.sh", "start"]
+    # entrypoint: ["/opt/janusgraph/bin/janusgraph.sh", "start"]
+
+  # btc_orientdb:
+  #   image: orientdb:latest
+  #   container_name: btc_orientdb
+  #   ports:
+  #     - "${GREMLIN_SEVER_PORT:-8182}:${GREMLIN_SEVER_PORT:-8182}"
+  #     - "${GRAPH_DB_PORT:-2424}:${GRAPH_DB_PORT:-2424}"
+  #     - "2480:2480"
+  #   environment:
+  #     ORIENTDB_ROOT_PASSWORD: ${GRAPH_DB_PASSWORD}
+  #   volumes:
+  #     - ./orientdb/config:/opt/orientdb/config
+  #     - ./orientdb/databases:/opt/orientdb/databases
+  #     - ./orientdb/backup:/opt/orientdb/backup
+      # - ./init_db.sh:/init_db.sh
+    # command: ["/bin/bash", "/init_db.sh"]
 
 networks:
-  jce-network:
+  btc-network:
 volumes:
   btc_janusgraph_data:
