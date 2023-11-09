@@ -32,15 +32,16 @@ load_dotenv()
 g.V().drop().iterate()
 
 # add vertices
-g.addV('person').property('name', 'Bob').next()
-g.addV('person').property('name', 'John').next()
+g.addV('person').property('name', 'Sal').property('marked', True).next()
+g.addV('person').property('name', 'Rob').property('marked', True).next()
 g.addV('person').property('name', 'Frank').next()
 g.addV('person').property('name', 'Sally').next()
-g.addV('person').property('name', 'Rob').property('marked', True).next()
 g.addV('person').property('name', 'Bill').property('marked', True).next()
-g.addV('person').property('name', 'Sal').property('marked', True).next()
+g.addV('person').property('name', 'Bob').next()
+g.addV('person').property('name', 'John').next()
 
 # add edges
+g.V().has('name', 'Sal').addE('sent').to(__.V().has('name', 'Rob')).property('value', 17).next()
 g.V().has('name', 'Rob').addE('sent').to(__.V().has('name', 'Frank')).property('value', 8).next()
 g.V().has('name', 'Rob').addE('sent').to(__.V().has('name', 'Sally')).property('value', 7).next()
 g.V().has('name', 'Bill').addE('sent').to(__.V().has('name', 'Frank')).property('value', 3).next()
@@ -49,7 +50,6 @@ g.V().has('name', 'Frank').addE('sent').to(__.V().has('name', 'Bob')).property('
 g.V().has('name', 'Frank').addE('sent').to(__.V().has('name', 'John')).property('value', 2).next()
 g.V().has('name', 'Sally').addE('sent').to(__.V().has('name', 'Bob')).property('value', 3).next()
 g.V().has('name', 'Sally').addE('sent').to(__.V().has('name', 'John')).property('value', 3).next()
-g.V().has('name', 'Sal').addE('sent').to(__.V().has('name', 'Rob')).property('value', 17).next()
 
 edge = g.V().has('name', 'Rob').outE('sent').next()
 print(edge)

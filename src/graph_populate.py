@@ -1,10 +1,3 @@
-import os
-
-from dotenv import load_dotenv
-
-from gremlin_python.process.anonymous_traversal import traversal
-from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
-
 from models.bitcoin_data import (
     BITCOIN_TO_SATOSHI,
     DUPLICATE_TRANSACTIONS,
@@ -16,14 +9,7 @@ from models.bitcoin_data import (
 )
 from blockchain_data_provider import PersistentBlockchainAPIData
 
-load_dotenv()
-
-JANUSGRAPH_HOST = os.getenv("JANUSGRAPH_HOST")
-JANUSGRAPH_PORT = os.getenv("JANUSGRAPH_PORT")
-JANUSGRAPH_URL = f"ws://{JANUSGRAPH_HOST}:{JANUSGRAPH_PORT}/gremlin"
-
-
-g = traversal().with_remote(DriverRemoteConnection(JANUSGRAPH_URL, 'g'))
+from graph.base import g
 
 
 def chunked_ranges(lowest, highest, buffer: int = 100) -> list[tuple[int, int]]:
@@ -53,11 +39,11 @@ def chunked_indices(items: list, buffer: int):
     return [(start, end + 1) for (start, end) in chunked_ranges(0, len(items) - 1, buffer)]
 
 
-def haircut(ctn_input_value: float, sum_of_inputs: int, output_value: float) -> float:
+def haircut(input_value: float, sum_of_inputs: int, output_value: float) -> float:
     """
     Generic haircut function that finds the contribution of a single input to an output.
     """
-    return (ctn_input_value / sum_of_inputs) * output_value
+    return (input_value / sum_of_inputs) * output_value
 
 
 class OutputGraphPopulate:
