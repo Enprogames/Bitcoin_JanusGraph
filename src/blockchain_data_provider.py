@@ -15,6 +15,15 @@ BLOCKCHAIN_INFO_TX_ENDPOINT = "https://blockchain.info/rawtx/{tx_hash}?format=js
 
 
 class UniqueIDManager:
+    """Manage unique IDs for transactions, inputs, and outputs.
+
+    In the Bitcoin blockchain, transactions, inputs, and outputs
+    are not given unique IDs. This class manages the assignment
+    of unique IDs to these objects. They are assigned in the order
+    that they are parsed from the blockchain.
+
+    NOTE: This class is not currently in use. It may be removed.
+    """
 
     def __init__(self, input_npy_file='input_data.npy', output_npy_file='output_data.npy'):
         self.input_counter = 0
@@ -38,15 +47,6 @@ class UniqueIDManager:
 
     def save_npy(self, data, filename):
         np.save(filename, data)
-
-    # def ensure_shape(self, array, shape):
-        # if shape is different, reshape
-        
-
-        # new_array = np.zeros(shape, dtype=int)
-        # slice_indices = tuple(slice(0, min(dim, old_dim)) for dim, old_dim in zip(shape, array.shape))
-        # new_array[slice_indices] = array[slice_indices]
-        # return new_array
 
     def parse_block_json(self, block_data, block_height):
 
@@ -121,7 +121,7 @@ class BitcoinDataProvider(ABC):
             Block
         """
         pass
-    
+
     @abstractmethod
     def get_address(self, address: str = None, address_id: int = None) -> Address:
         """Get an address by its address string or ID.
@@ -168,6 +168,9 @@ class BlockchainAPIJSON:
     """Lazily make requests to the Blockchain.info API without
     persisting any data. This is slow and should only be used
     for small-scale testing.
+    
+    This is also used as the provider for the default provider
+    for the PersistentBlockchainAPIData class.
     """
     def __init__(self,
                  block_endpoint: str = BLOCKCHAIN_INFO_BLOCK_ENDPOINT,
@@ -235,15 +238,18 @@ class PersistentBlockchainAPIData(BitcoinDataProvider):
             tx_obj = session.query(Tx).options(
                 options
             ).filter_by(id=tx_id).first()
+            
+            if not tx_obj:
+                raise FileNotFoundError(f"Transaction with ID {tx_id} not found in database")
         else:
             tx_obj = session.query(Tx).options(
                 options
             ).filter_by(hash=tx_hash).first()
 
-        if tx_obj:
-            return tx_obj
+            if not tx_obj:
+                raise FileNotFoundError(f"Transaction with hash {tx_hash} not found in database")
 
-        raise FileNotFoundError(f"Transaction with hash {tx_hash} not found in database")
+        return tx_obj
 
     def get_input(self, session: Session, input_id: int) -> Input:
         input_obj = session.query(Input).options(
@@ -268,12 +274,16 @@ class PersistentBlockchainAPIData(BitcoinDataProvider):
             raise ValueError("Must provide either address or address_id")
         if address:
             address_obj = session.query(Address).filter_by(addr=address).first()
+            
+            if not address_obj:
+                raise FileNotFoundError(f"Address with address {address} not found in database")
         else:
             address_obj = session.query(Address).filter_by(id=address_id).first()
+            
+            if not address_obj:
+                raise FileNotFoundError(f"Address with ID {address_id} not found in database")
 
-        if address_obj:
-            return address_obj
-        raise FileNotFoundError(f"Address with address {address} not found in database")
+        return address_obj
 
     def __populate_addresses(self, session: Session, block: Block):
 

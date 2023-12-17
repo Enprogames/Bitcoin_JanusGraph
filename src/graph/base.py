@@ -10,6 +10,7 @@ from gremlin_python import statics
 from gremlin_python.structure.graph import Graph
 from gremlin_python.process.graph_traversal import __
 from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
+from gremlin_python.process.graph_traversal import GraphTraversalSource
 
 
 statics.load_statics(globals())
@@ -29,10 +30,13 @@ assert GRAPH_DB_HOST is not None and GREMLIN_SEVER_PORT is not None and GRAPH_DB
 gremlin_version = tuple([int(x) for x in version('gremlinpython').split('.')])
 if (gremlin_version <= (3, 4, 0)):
     graph = Graph()
-    g = graph.traversal().withRemote(DriverRemoteConnection(GRAPH_DB_URL, 'g'))
+    g: GraphTraversalSource = graph.traversal().withRemote(
+        DriverRemoteConnection(GRAPH_DB_URL, 'g',
+                               username=GRAPH_DB_USER,
+                               password=GRAPH_DB_PASSWORD))
 else:
     from gremlin_python.process.anonymous_traversal import traversal
-    g = traversal().withRemote(DriverRemoteConnection(GRAPH_DB_URL, 'g',
-                                                      username=GRAPH_DB_USER, password=GRAPH_DB_PASSWORD))
-
-print(GRAPH_DB_URL)
+    g: GraphTraversalSource = traversal().withRemote(
+        DriverRemoteConnection(GRAPH_DB_URL, 'g',
+                               username=GRAPH_DB_USER,
+                               password=GRAPH_DB_PASSWORD))

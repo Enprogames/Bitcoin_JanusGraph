@@ -1,4 +1,3 @@
-import os
 import sys
 from pathlib import Path
 
@@ -22,6 +21,7 @@ from dotenv import load_dotenv
 from graph.base import g
 
 from gremlin_python import statics
+from gremlin_python.process.traversal import T
 from gremlin_python.process.graph_traversal import __
 from gremlin_python.process.strategies import *
 from gremlin_python.process.graph_traversal import GraphTraversalSource
@@ -32,6 +32,8 @@ load_dotenv()
 g.V().drop().iterate()
 
 # add vertices
+# CUSTOM VERTEX ID DOESN'T WORK
+# g.addV('person').property(T.id, 2).property('name', 'Sal').property('marked', True).next()
 g.addV('person').property('name', 'Sal').property('marked', True).next()
 g.addV('person').property('name', 'Rob').property('marked', True).next()
 g.addV('person').property('name', 'Frank').next()

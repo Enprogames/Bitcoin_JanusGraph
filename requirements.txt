@@ -1,6 +1,7 @@
 # 3.5.7 works!
 gremlinpython>=3.5,<3.6
 # gremlinpython>=3.7
+networkx
 numpy
 psycopg2-binary
 pyjson5

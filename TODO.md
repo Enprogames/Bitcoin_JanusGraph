@@ -9,5 +9,23 @@
     - [ ] Retrieving previous outputs from inputs.
     - [ ] Retrieving all outputs for an address.
 ## Graph Database Population
-- [ ] Create `PopulateOutputProportionGraph` class to populate graph database.
-- [ ] Implement tracing algorithm in Gremlin query language.
+- [x] Create `PopulateOutputProportionGraph` class to populate graph database.
+- [ ] Implement tracing algorithm for graph database.
+- [ ] Create some simple unit tests to validate the integrity of a few key data items in the populated database.
+    - [ ] Ensuring duplicate transactions are marked as such.
+    - [ ] Retrieving previous outputs from inputs.
+    - [ ] Retrieving all outputs for an address.
+- [ ] Visualize some interesting data.
+    - [] Find some interesting transactions.
+
+## Paper
+- [ ] Literature Review
+    - [ ] Address Clustering using Heuristics and Algorithms
+    - [ ] 
+    - [ ] **Algorithms used by Taintchain
+    - [ ] ** Algorithms used by BitIondine
+- [ ] Consistent definition of tracing
+    - [ ] Different definitions by different researchers
+    - [ ] My definition
+- [ ] Data Preparation
+    - [ ] Duplicate Transactions

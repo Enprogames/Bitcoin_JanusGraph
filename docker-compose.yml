@@ -5,22 +5,26 @@ services:
   app:
     container_name: app
     stdin_open: true
-    tty: true   # Enabled together with stdin_open so it won't raise an error when we are in pdb mode. Attach using `docker attach $(docker-compose ps -q web)`
+    tty: true   # Enabled together with stdin_open so it won't raise an error when we are in pdb mode.
     build:
       context: .
       dockerfile: Dockerfile
     volumes:
       - .:/app
+    networks:
+      - btc-network
     ports:
       - "5000:5000"
     depends_on:
-      # - btc_janusgraph
+      - btc_janusgraph
       - btc_postgres_db
 
   btc_postgres_db:
     container_name: btc_postgres_db
     image: postgres
     restart: unless-stopped
+    networks:
+      - btc-network
     ports:
     - "${DATABASE_PORT}:${DATABASE_PORT}"
     volumes:
@@ -30,58 +34,41 @@ services:
     - POSTGRES_USER=${DATABASE_USER}
     - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
 
-  # gremlin-console:
-  #   image: janusgraph/janusgraph:latest
-  #   container_name: gremlin-console
-  #   environment:
-  #     GREMLINE_REMOTE_HOSTS: janusgraph
-  #     # JANUS_PROPS_TEMPLATE: cql-es
-  #     # janusgraph.storage.hostname: jce-cassandra
-  #     # janusgraph.index.search.hostname: jce-elastic
-  #   networks:
-  #     - jce-network
-  #   healthcheck:
-  #     test: ["CMD", "bin/gremlin.sh", "-e", "scripts/remote-connect.groovy"]
-  #     interval: 10s
-  #     timeout: 30s
-  #     retries: 3
-  #   depends_on:
-  #     - btc_janusgraph
-  #   volumes:
-  #     - ./janusgraph-data:/var/lib/janusgraph
-
   btc_janusgraph:
+    # build: ./janusgraph
     image: janusgraph/janusgraph:latest
     container_name: btc_janusgraph
-    # environment:
-      # JANUS_PROPS_TEMPLATE: cql-es
-      # janusgraph.storage.hostname: jce-cassandra
-      # janusgraph.index.search.hostname: jce-elastic
+    environment:
+      # janusgraph.graph.set-vertex-id: true
+      # janusgraph.graph.allow-custom-vid-types: true
+      janusgraph.storage.backend: berkeleyje
+      # janusgraph.storage.backend: cassandra
+      # janusgraph.index.default.backend: lucene
     ports:
       - "${JANUSGRAPH_PORT:-8182}:${JANUSGRAPH_PORT:-8182}"
+      - "8484:8184"
     networks:
       - btc-network
     volumes:
       - btc_janusgraph_data:/var/lib/janusgraph
-    # entrypoint: ["/opt/janusgraph/bin/janusgraph.sh", "start"]
+      # - "./janusgraph/janusgraph.properties:/etc/opt/janusgraph/janusgraph.properties:ro"
+    healthcheck:
+      test: ["CMD", "bin/gremlin.sh", "-e", "scripts/remote-connect.groovy"]
+      interval: 10s
+      timeout: 60s
+      retries: 4
 
-  # btc_orientdb:
-  #   image: orientdb:latest
-  #   container_name: btc_orientdb
-  #   ports:
-  #     - "${GREMLIN_SEVER_PORT:-8182}:${GREMLIN_SEVER_PORT:-8182}"
-  #     - "${GRAPH_DB_PORT:-2424}:${GRAPH_DB_PORT:-2424}"
-  #     - "2480:2480"
-  #   environment:
-  #     ORIENTDB_ROOT_PASSWORD: ${GRAPH_DB_PASSWORD}
-  #   volumes:
-  #     - ./orientdb/config:/opt/orientdb/config
-  #     - ./orientdb/databases:/opt/orientdb/databases
-  #     - ./orientdb/backup:/opt/orientdb/backup
-      # - ./init_db.sh:/init_db.sh
-    # command: ["/bin/bash", "/init_db.sh"]
 
 networks:
   btc-network:
 volumes:
   btc_janusgraph_data:
+
+# start from fresh state:
+# docker-compose down && docker volume rm bitcoin_janusgraph_btc_janusgraph_data && docker-compose up --build -d btc_janusgraph jce-cassandra jce-elasticsearch --remove-orphans
+
+# gremlin console connect to graph:
+# graph = JanusGraphFactory.open('conf/janusgraph-berkeleyje-lucene-server.properties')
+# or
+# graph = JanusGraphFactory.open('conf/janusgraph-berkeleyje-server.properties')
+# mgmt = graph.openManagement()

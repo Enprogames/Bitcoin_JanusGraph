@@ -38,7 +38,9 @@ DUPLICATE_TRANSACTIONS = [
 class Block(Base):
     __tablename__ = 'blocks'
     height = Column(Integer, primary_key=True)
-    transactions = relationship("Tx", back_populates="block", cascade="all, delete, delete-orphan")
+    transactions = relationship("Tx", back_populates="block",
+                                cascade="all, delete, delete-orphan",
+                                order_by="Tx.index_in_block")
 
 
 class Tx(Base):
@@ -53,21 +55,31 @@ class Tx(Base):
     block_height = Column(Integer, ForeignKey("blocks.height"), index=True)
 
     block = relationship("Block", back_populates="transactions")
-    outputs = relationship("Output", back_populates="transaction")
-    inputs = relationship("Input", back_populates="transaction")
+    outputs = relationship("Output", back_populates="transaction",
+                           cascade="all, delete, delete-orphan",
+                           order_by="Output.index_in_tx")
+    inputs = relationship("Input", back_populates="transaction",
+                          cascade="all, delete, delete-orphan",
+                          order_by="Input.index_in_tx")
+
+    def total_input_value(self):
+        if self.is_coinbase():
+            return 0
+
+        return sum(input.prev_out.value for input in self.inputs if input.prev_out is not None)
 
     def __repr__(self):
         return f"<Tx(hash={self.hash}, index={self.index})>"
-    
+
     def __str__(self):
         return f"<Tx(hash={self.hash}, index={self.index})>"
-    
+
     def __eq__(self, other):
         return self.id == other.id
-    
+
     def __hash__(self):
         return self.hash
-    
+
     def is_coinbase(self):
         return self.index_in_block == 0
 
