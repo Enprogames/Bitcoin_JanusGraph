@@ -4,25 +4,22 @@ package "Bitcoin Data Model" {
 
     class Block {
         + height: int
-        ---
-        + tx_set: Tx[*]
     }
 
-    class Tx {
+    class Transaction {
         + hash: string
         + index_in_block: int
         + is_duplicate: bool
         ---
-        + output_set: Output[*]
-        + input_set: Input[*]
         + block: Block
     }
 
     class Output {
         + index_in_tx: int
         + value: float
+        + valid: bool
         ---
-        + tx: Tx
+        + transaction: Transaction
         + address: Address
     }
 
@@ -30,18 +27,18 @@ package "Bitcoin Data Model" {
         + index_in_tx: int
         ---
         + prev_out: Output
-        + tx: Tx
+        + transaction: Transaction
     }
 
     class Address {
         + addr: string
     }
 
-    Tx "1" -- "many" Output : contains
-    Tx "1" -- "many" Input : contains
-    Block "1" -- "many" Tx : contains
-    Output "1" -- "1" Address : associated_with
-    Input "1" -- "1" Output : spends
+    Transaction "1" -- "many" Output : contains
+    Transaction "1" -- "many" Input : contains
+    Block "1" -- "many" Transaction : contains
+    Output "1" -- "1" Address : Output Address
+    Input "1" -- "1" Output : Previous Output
 
 }
 

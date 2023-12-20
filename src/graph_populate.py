@@ -11,10 +11,7 @@ from models.bitcoin_data import (
     Input,
     Address
 )
-from blockchain_data_provider import (
-    BlockchainAPIJSON,
-    PersistentBlockchainAPIData
-)
+from blockchain_data_provider import BlockchainDataProviderADT
 
 from graph.base import g
 
@@ -57,7 +54,7 @@ def haircut(input_value: float, sum_of_inputs: int, output_value: float) -> floa
 class PopulateOutputProportionGraph:
 
     def __init__(self,
-                 data_provider: BlockchainAPIJSON = None):
+                 data_provider: BlockchainDataProviderADT = None):
         self.data_provider = data_provider
 
     def clear_graph(self):
@@ -113,22 +110,43 @@ class PopulateOutputProportionGraph:
 
 
 if __name__ == '__main__':
-    from models.base import SessionLocal
+    import argparse
 
+    from models.base import SessionLocal
     from blockchain_data_provider import PersistentBlockchainAPIData
+
+    parser = argparse.ArgumentParser(description="Script for populating database")
+    parser.add_argument('--height', default=None, type=int, help='Block height up to which to populate')
+    parser.add_argument('--delete', default=False, action='store_true',
+                        help='Delete all data in database and don\'t populate.')
+
+    args = parser.parse_args()
 
     data_provider = PersistentBlockchainAPIData()
 
     populator = PopulateOutputProportionGraph(data_provider)
 
     with SessionLocal() as session:
-        highest_block = session.query(Block).order_by(Block.height.desc()).first()
 
-        if not highest_block:
-            print("No blocks found in database. Cannot populate graph. Exiting.")
-            exit(1)
-        else:
+        if args.delete:
+            print("Deleting all graph data...")
+            # wipe the database
             populator.clear_graph()
-            populator.populate(session,
-                               range(0, highest_block.height+1),
-                               show_progressbar=True)
+            print("Graph data wiped.")
+            exit(0)
+        else:
+            print("Populating graph...")
+
+            if args.height is not None:
+                highest_block = session.query(Block).get(height=args.height)
+            else:
+                highest_block = session.query(Block).order_by(Block.height.desc()).first()
+
+            if not highest_block:
+                print("No blocks found in database. Cannot populate graph. Exiting.")
+                exit(1)
+            else:
+                populator.clear_graph()
+                populator.populate(session,
+                                   range(0, highest_block.height + 1),
+                                   show_progressbar=True)

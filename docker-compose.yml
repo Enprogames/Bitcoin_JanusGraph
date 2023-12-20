@@ -9,6 +9,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # initialize database, then run dummy command to keep container running
+    command: /bin/bash -c "python /app/init_db.py && tail -f /dev/null"
     volumes:
       - .:/app
     networks:
@@ -28,14 +30,13 @@ services:
     ports:
     - "${DATABASE_PORT}:${DATABASE_PORT}"
     volumes:
-      - ./data/db:/var/lib/postgresql/data
+      - ${DATABASE_FOLDER:-./data/btc_postgres_db}:/var/lib/postgresql/data
     environment:
     - POSTGRES_DB=${DATABASE_NAME}
     - POSTGRES_USER=${DATABASE_USER}
     - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
 
   btc_janusgraph:
-    # build: ./janusgraph
     image: janusgraph/janusgraph:latest
     container_name: btc_janusgraph
     environment:
@@ -50,8 +51,7 @@ services:
     networks:
       - btc-network
     volumes:
-      - btc_janusgraph_data:/var/lib/janusgraph
-      # - "./janusgraph/janusgraph.properties:/etc/opt/janusgraph/janusgraph.properties:ro"
+      - ${GRAPH_DB_FOLDER:-./data/btc_janusgraph}:/var/lib/janusgraph
     healthcheck:
       test: ["CMD", "bin/gremlin.sh", "-e", "scripts/remote-connect.groovy"]
       interval: 10s
@@ -61,14 +61,3 @@ services:
 
 networks:
   btc-network:
-volumes:
-  btc_janusgraph_data:
-
-# start from fresh state:
-# docker-compose down && docker volume rm bitcoin_janusgraph_btc_janusgraph_data && docker-compose up --build -d btc_janusgraph jce-cassandra jce-elasticsearch --remove-orphans
-
-# gremlin console connect to graph:
-# graph = JanusGraphFactory.open('conf/janusgraph-berkeleyje-lucene-server.properties')
-# or
-# graph = JanusGraphFactory.open('conf/janusgraph-berkeleyje-server.properties')
-# mgmt = graph.openManagement()

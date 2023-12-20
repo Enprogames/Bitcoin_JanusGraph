@@ -1,7 +1,7 @@
 # Bitcoin Data Graph
 
 # Usage
-This project utilizes Docker and Docker Compose to manage its environment. The provided Makefile simplifies the process of building, running, and managing the application.
+This project utilizes Docker and Docker Compose to manage its environment. A Makefile is provided to simplify the process of building, running, and managing the application.
 
 ## Prerequisites
 
@@ -18,21 +18,15 @@ To get started with the project, first clone the repository and navigate into th
 
 The Makefile includes several commands to manage the Docker containers, networks, and volumes associated with the project.
 
-### Building the Project
+### Starting the Application
 
-To build the Docker images for the project:
-
-```bash
-make build
-```
-
-### Running the Application
-
-To start the application in Docker containers:
+To start the application, run the following command:
 
 ```bash
-make run
+make start
 ```
+
+This command starts all defined services in the background (`-d` option). If any service fails to start, the command will exit with an error message.
 
 ### Populating Data
 
@@ -41,7 +35,7 @@ The project supports populating data into the database. You can populate blocks 
 - To populate blocks up to a default height:
 
 ```bash
-make populate_blocks
+make populate_blockchain
 ```
 
 - To populate blocks up to a specific height (e.g., height 200):
@@ -94,23 +88,7 @@ make full_clean
 make ps
 ```
 
-- To start stopped containers:
-
-```bash
-make start
-```
-
-- To restart the containers:
-
-```bash
-make restart
-```
-
-## Conclusion
-
-The Makefile is designed to simplify Docker container management in the development process. For any additional commands or modifications, refer to the Makefile in the project repository.
-
-# Description
+# Project Description
 
 The main point of this project is to effectively demonstrate Bitcoin tracing in a graph database, and to develop algorithms to achieve it.
 

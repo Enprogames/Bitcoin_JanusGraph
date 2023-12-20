@@ -156,15 +156,15 @@ class Address(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     addr = Column(String, index=True)
     outputs = relationship("Output", back_populates="address")
-    
+
     def __repr__(self):
         return f"<Address(addr={self.addr})>"
-    
+
     def __str__(self):
         return f"<Address(addr={self.addr})>"
-    
+
     def __eq__(self, other):
         return self.id == other.id
-    
+
     def __hash__(self):
         return self.id

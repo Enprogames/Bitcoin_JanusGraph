@@ -14,41 +14,59 @@ DOCKER_COMPOSE_STOP := $(DOCKER_COMPOSE) stop
 DOCKER_COMPOSE_START := $(DOCKER_COMPOSE) start
 DOCKER_COMPOSE_RESTART := $(DOCKER_COMPOSE) restart
 
+EXEC_APP := $(DOCKER_COMPOSE_EXEC_APP) bash -c
+
 # Populate Parameters (default values)
-BLOCK_HEIGHT ?= 100
+BLOCK_HEIGHT ?= 100000
 API_ENDPOINT ?= "https://blockchain.info/rawblock/"
 
 # Targets
-.PHONY: all run populate populate_blocks populate_graph test clean full_clean
+.PHONY: all start stop ps populate populate_blocks populate_graph test clean full_clean
 
 all: populate
 
-run:
-	@echo "Running app..."
-	@$(DOCKER_COMPOSE_UP)
+start:
+	@echo "Starting containers..."
+	@$(DOCKER_COMPOSE_UP) || (echo "Failed to start containers" && exit 1)
 
-populate: populate_blocks populate_graph
+ps:
+	@echo "Listing containers..."
+	@$(DOCKER_COMPOSE_PS)
 
-populate_blocks:
+stop:
+	@echo "Stopping containers..."
+	@$(DOCKER_COMPOSE_STOP)
+
+populate: start populate_blocks populate_graph
+
+populate_blockchain:
 	@echo "Populating blocks up to height $(BLOCK_HEIGHT) and API endpoint $(API_ENDPOINT)..."
-	@$(DOCKER_COMPOSE_EXEC_APP) bash -c "python src/populate_blockchain.py $(BLOCK_HEIGHT) --endpoint $(API_ENDPOINT)"
+	@$(EXEC_APP) "\
+		python src/blockchain_populate.py\
+		--height $(BLOCK_HEIGHT)\
+		--endpoint $(API_ENDPOINT)"
 
-delete_blocks:
+delete_blockchain:
 	@echo "Deleting blocks..."
-	@$(DOCKER_COMPOSE_EXEC_APP) bash -c "python src/populate_blockchain.py --delete"
+	@$(EXEC_APP) "python src/blockchain_populate.py --delete"
 
 populate_graph:
 	@echo "Populating graph..."
-	@$(DOCKER_COMPOSE_EXEC_APP) bash -c "python src/graph_populate.py"
+	@$(EXEC_APP) "python src/graph_populate.py"
+
+delete_graph:
+	@echo "Deleting graph..."
+	@$(EXEC_APP) "python src/graph_populate.py --delete"
 
 test:
 	@echo "Running tests..."
-	@$(DOCKER_COMPOSE_EXEC_APP) bash -c "pytest"
+	@$(EXEC_APP) "pytest"
 
 clean:
 	@echo "Cleaning up..."
 	@$(DOCKER_COMPOSE_DOWN)
 
 full_clean:
-	@echo "Performing full cleanup..."
+	@echo "This will remove all containers, images, and volumes."
+	@read -p "Are you sure? [y/N]: " confirm && [ $$confirm == y ] || exit 1
 	@$(DOCKER_COMPOSE_DOWN) -v --rmi all --remove-orphans

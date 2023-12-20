@@ -73,10 +73,10 @@ if __name__ == "__main__":
             highest_block = 0
 
         if args.height < highest_block:
-            print(f"Specified height {args.height} is lower than current highest block {highest_block.height}. Exiting.")
+            print(f"Specified height {args.height} is lower than current highest block {highest_block}. Exiting.")
             exit(1)
         elif args.height == highest_block:
-            print(f"Specified height {args.height} is equal to current highest block {highest_block.height}. Exiting.")
+            print(f"Specified height {args.height} is equal to current highest block {highest_block}. Exiting.")
         else:
             print(f"Populating up to height {args.height}...")
             slow_provider = BlockchainAPIJSON(block_endpoint=args.endpoint)

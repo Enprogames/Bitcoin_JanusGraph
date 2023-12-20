@@ -1,0 +1,34 @@
+@startuml
+title Bitcoin Data Graph
+
+class Owner {
+    id : int
+    name : String
+}
+
+class Address {
+    + id : int
+    + addr : String
+    ---
+    + owner : Owner
+}
+
+class Sent {
+    + value : float
+}
+
+class Output {
+    + id : int
+    + value : int
+    + is_coinbase : bool
+    + tainted : bool
+    + label : String
+    ---
+    + address : Address
+}
+
+Owner "1" <-- "many" Address : Owns
+Address "1" <-- "many" Output : Output Address
+Output "many" -- "many" Output : Sent (Haircut Proportion)
+
+@enduml

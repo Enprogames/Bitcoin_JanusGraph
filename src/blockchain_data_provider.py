@@ -1,4 +1,7 @@
 from abc import ABC, abstractmethod
+import json
+import time
+import traceback
 from typing import Dict, Optional, Set
 from pathlib import Path
 
@@ -12,6 +15,18 @@ from models.bitcoin_data import Block, Tx, Input, Output, Address, DUPLICATE_TRA
 
 BLOCKCHAIN_INFO_BLOCK_ENDPOINT = "https://blockchain.info/rawblock/{height}?format=json"
 BLOCKCHAIN_INFO_TX_ENDPOINT = "https://blockchain.info/rawtx/{tx_hash}?format=json"
+
+
+class InvalidDataError(Exception):
+    pass
+
+
+class FailedRequestException(Exception):
+    pass
+
+
+class RateLimitException(FailedRequestException):
+    pass
 
 
 class UniqueIDManager:
@@ -106,7 +121,7 @@ class UniqueIDManager:
         return self.output_array[block_height, tx_index, output_index]
 
 
-class BitcoinDataProvider(ABC):
+class BlockchainDataProviderADT(ABC):
 
     @abstractmethod
     def get_block(self, height: int) -> Block:
@@ -168,30 +183,139 @@ class BlockchainAPIJSON:
     """Lazily make requests to the Blockchain.info API without
     persisting any data. This is slow and should only be used
     for small-scale testing.
-    
+
     This is also used as the provider for the default provider
     for the PersistentBlockchainAPIData class.
     """
-    def __init__(self,
-                 block_endpoint: str = BLOCKCHAIN_INFO_BLOCK_ENDPOINT,
-                 tx_endpoint: str = BLOCKCHAIN_INFO_TX_ENDPOINT):
+
+    def __init__(self, verbosity=1, max_retries=100, block_endpoint=BLOCKCHAIN_INFO_BLOCK_ENDPOINT,
+                 tx_endpoint=BLOCKCHAIN_INFO_TX_ENDPOINT) -> None:
+        """Set instance variables for the driver
+
+        Args:
+            verbosity (int, optional): How much output info to give. Defaults to 1.
+            max_retries (int, optional): How many times to continue retrying API requests before stopping. Defaults to 100.
+            endpoint (str, optional): Web API which returns blockchain JSON data. Defaults to 'https://blockchain.info/rawblock/'.
+        """
+        self.verbosity = verbosity
         self.block_endpoint = block_endpoint
         self.tx_endpoint = tx_endpoint
+        self.max_retries = max_retries
 
-    def get_block_json(self, height: int) -> dict:
-        return requests.get(self.block_endpoint.format(height=height)).json()
+    def get_block_json(self, height: int) -> dict[str, object]:
+        """Using the given API endpoint, keep attempting to load a bitcoin block until the maximum number of retries have been done.
 
-    def get_tx_json(self, tx_hash: str) -> dict:
-        return requests.get(self.tx_endpoint.format(tx_hash=tx_hash)).json()
+        Args:
+            height (int): Height of bitcoin block to load from API.
+
+        Raises:
+            Exception: Some unknown error which may occur during population.
+
+        Returns:
+            dict[str, object]: JSON data for block data as python dictionary.
+        """
+        block_data: dict[str, object] = None
+        successful = False
+        remaining_tries = self.max_retries + 1
+        while not successful and remaining_tries >= 1:
+            try:
+                if self.verbosity >= 3:
+                    blockstore_start = time.perf_counter()
+                api_response = requests.get(f'{self.block_endpoint}{str(height)}')
+                block_data = api_response.json()
+
+                # make sure the data stored is at least somewhat correct
+                if 'height' not in block_data or not block_data['height'] == height:
+                    raise InvalidDataError("The block data received was invalid.")
+                successful = True
+                if self.verbosity >= 3:
+                    print(f"block {height} successfully loaded in {time.perf_counter() - blockstore_start} seconds")
+
+            except (json.decoder.JSONDecodeError,
+                    requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.ConnectionError,
+                    InvalidDataError) as e:
+                print(traceback.format_exc())
+                remaining_tries -= 1
+                if remaining_tries >= 1:
+                    print(f'{e} for block {height}. Retrying in 5 seconds.')
+                    time.sleep(5)
+                else:
+                    block_data = None
+            except Exception as e:
+                traceback.print_exc()
+                remaining_tries = 0
+                print(f"Got unhandled {type(e)}")
+                raise e
+
+        if not block_data:
+            raise FailedRequestException(f"After trying {self.max_retries+1} time(s),"
+                                         f" the block data was not successfully retrieved from {self.block_endpoint}.")
+
+        return block_data
+
+    def get_blocks_json(self, heights: list[int]) -> dict[int, dict[str, object]]:
+        return {height: self.get_block(height) for height in heights}
+
+    def get_tx_json(self, _hash: str) -> dict[str, object]:
+        """Using the given API endpoint, keep attempting to load a bitcoin transaction until the maximum number of retries have been done.
+
+        Args:
+            _hash (str): Hash of bitcoin transaction to load from API.
+
+        Raises:
+            Exception: Some unknown error which may occur during population.
+
+        Returns:
+            dict[str, object]: JSON data for transaction data as python dictionary.
+        """
+        tx_data: dict[str, object] = None
+        successful = False
+        remaining_retries = self.max_retries
+        while not successful and remaining_retries >= 1:
+            try:
+                if self.verbosity >= 3:
+                    txstore_start = time.perf_counter()
+
+                api_response = requests.get(f'{self.tx_endpoint}{str(_hash)}')
+                if api_response.status_code == 429:
+                    raise RateLimitException("Rate limit response given from API")
+                if not api_response.ok:
+                    raise FailedRequestException("Error response from API")
+                tx_data = api_response.json()
+
+                # expand the list and store
+                if 'hash' not in tx_data or tx_data['hash'] != _hash:
+                    raise InvalidDataError("The transaction had either no hash or the wrong one")
+                successful = True
+                if self.verbosity >= 3:
+                    print(f"tx {_hash} successfully loaded in {time.perf_counter() - txstore_start} seconds")
+
+            except (json.decoder.JSONDecodeError,
+                    requests.exceptions.ChunkedEncodingError,
+                    requests.exceptions.ConnectionError,
+                    AssertionError,
+                    ) as e:
+                print(traceback.format_exc())
+                print(f'{e} for tx {_hash}. Retrying in 5 seconds.')
+                time.sleep(5)
+                remaining_retries -= 1
+            except Exception as e:
+                traceback.print_exc()
+                remaining_retries = 0
+                raise e
+
+        return tx_data
 
 
-class PersistentBlockchainAPIData(BitcoinDataProvider):
+class PersistentBlockchainAPIData(BlockchainDataProviderADT):
     """Persist data from the Blockchain.info API to a database.
 
     Args:
-        BitcoinDataProvider (ABC): Implements the abstract
+        BlockchainDataProviderADT (ABC): Implements the abstract
         interface for Bitcoin data providers.
     """
+
     def __init__(self,
                  data_provider: BlockchainAPIJSON = None):
         self.data_provider = data_provider
@@ -216,7 +340,7 @@ class PersistentBlockchainAPIData(BitcoinDataProvider):
                 joinedload(Block.transactions)
                 .joinedload(Tx.outputs)
                 .joinedload(Output.address)
-            ) \
+        ) \
             .filter_by(height=height).first()
 
         if block:
@@ -231,14 +355,14 @@ class PersistentBlockchainAPIData(BitcoinDataProvider):
             joinedload(Tx.outputs)
             .joinedload(Output.address)
         )
-            
+
         if not (tx_id is not None or tx_hash is not None):
             raise ValueError("Must provide either tx_id or tx_hash")
         if tx_id:
             tx_obj = session.query(Tx).options(
                 options
             ).filter_by(id=tx_id).first()
-            
+
             if not tx_obj:
                 raise FileNotFoundError(f"Transaction with ID {tx_id} not found in database")
         else:
@@ -262,7 +386,7 @@ class PersistentBlockchainAPIData(BitcoinDataProvider):
 
     def get_output(self, session: Session, output_id: int) -> Output:
         output_obj = session.query(Output).options(
-            joinedload(Output.address)  
+            joinedload(Output.address)
         ).filter_by(id=output_id).first()
 
         if output_obj:
@@ -274,12 +398,12 @@ class PersistentBlockchainAPIData(BitcoinDataProvider):
             raise ValueError("Must provide either address or address_id")
         if address:
             address_obj = session.query(Address).filter_by(addr=address).first()
-            
+
             if not address_obj:
                 raise FileNotFoundError(f"Address with address {address} not found in database")
         else:
             address_obj = session.query(Address).filter_by(id=address_id).first()
-            
+
             if not address_obj:
                 raise FileNotFoundError(f"Address with ID {address_id} not found in database")
 
@@ -351,7 +475,7 @@ class PersistentBlockchainAPIData(BitcoinDataProvider):
             if prev_out_tx_index in block_tx_index_dict:
                 # the previous output is in a transaction in the same block
                 prev_out_tx_index_in_block = block_tx_index_dict[prev_out_tx_index]
-                assert prev_out_index_in_tx <= len(block.transactions[prev_out_tx_index_in_block].outputs)-1, \
+                assert prev_out_index_in_tx <= len(block.transactions[prev_out_tx_index_in_block].outputs) - 1, \
                     f"Previous output for non-coinbase input {new_input.id} not found in block" \
                     f" (prev_out_tx_index_in_block={prev_out_tx_index_in_block}, tx_index={prev_out_tx_index}," \
                     f" index_in_tx={prev_out_index_in_tx}), tx_hash={tx.hash}, block_height={tx.block_height}," \
@@ -434,19 +558,19 @@ class PersistentBlockchainAPIData(BitcoinDataProvider):
         # parse the block into the unique_id_manager
         block_json = self.data_provider.get_block_json(height=block_height)
 
-        # find the current highest input ID, output ID, and TX ID to continue from
+        ### find the current highest input ID, output ID, and TX ID to continue from
 
         highest_tx = session.query(func.max(Tx.id)).scalar()
-        self.current_tx_id = int(highest_tx)+1 if highest_tx is not None else 0
+        self.current_tx_id = int(highest_tx) + 1 if highest_tx is not None else 0
 
         highest_input = session.query(func.max(Input.id)).scalar()
-        self.current_input_id = int(highest_input)+1 if highest_input is not None else 0
+        self.current_input_id = int(highest_input) + 1 if highest_input is not None else 0
 
         highest_output = session.query(func.max(Output.id)).scalar()
-        self.current_output_id = int(highest_output)+1 if highest_output is not None else 0
+        self.current_output_id = int(highest_output) + 1 if highest_output is not None else 0
 
         highest_address = session.query(func.max(Address.id)).scalar()
-        self.current_address_id = int(highest_address)+1 if highest_address is not None else 0
+        self.current_address_id = int(highest_address) + 1 if highest_address is not None else 0
 
         assert block_height == 0 or (
             highest_tx is not None and highest_output is not None
@@ -482,7 +606,7 @@ class PersistentBlockchainAPIData(BitcoinDataProvider):
             if highest_block.height > block_heights[-1]:
                 block_heights = []
             else:
-                block_heights = block_heights[block_heights.index(highest_block.height)+1:]
+                block_heights = block_heights[block_heights.index(highest_block.height) + 1:]
 
         if show_progressbar:
             from tqdm import tqdm
