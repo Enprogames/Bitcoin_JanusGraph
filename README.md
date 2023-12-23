@@ -88,6 +88,53 @@ make full_clean
 make ps
 ```
 
+# Using Janusgraph Console
+### Start Janusgraph
+```bash
+# Start all containers
+make start
+```
+
+### Go into container
+
+```bash
+# Go into container
+docker-compose exec janusgraph bash
+```
+
+### Start Gremlin Console
+```bash
+# Start Gremlin Console
+./bin/gremlin.sh
+```
+
+### Connect to Janusgraph
+```bash
+# Connect to Janusgraph
+:remote connect tinkerpop.server conf/remote.yaml
+:remote console
+mgmt = graph.openManagement()
+```
+
+### Create an Index
+```bash
+# Create an Index
+mgmt = graph.openManagement()
+
+
+### Create a Vertex
+```bash
+# Create a Vertex
+g.addV('person').property('name', 'marko').property('age', 29)
+```
+
+### Create an Edge
+```bash
+# Create an Edge
+g.V().has('person', 'name', 'marko').addE('knows').to(g.V().has('person', 'name', 'vadas'))
+```
+
+
 # Project Description
 
 The main point of this project is to effectively demonstrate Bitcoin tracing in a graph database, and to develop algorithms to achieve it.

@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from blockchain_data_provider import (
     PersistentBlockchainAPIData,
     BlockchainAPIJSON,
+    BlockchainAPIAsync,
     BLOCKCHAIN_INFO_BLOCK_ENDPOINT
 )
 
@@ -25,6 +26,10 @@ if __name__ == "__main__":
     parser.add_argument('-e', '--endpoint', default=BLOCKCHAIN_INFO_BLOCK_ENDPOINT,
                         type=str, help='API endpoint for blockchain data population')
     parser.add_argument('--delete', default=False, action='store_true', help='Delete all data in database before populating')
+
+    parser.add_argument('--async', default=False, dest='use_async',
+                        action='store_true', help='Use async API provider'
+                        ' (default is synchronous)')
 
     args = parser.parse_args()
 
@@ -79,8 +84,13 @@ if __name__ == "__main__":
             print(f"Specified height {args.height} is equal to current highest block {highest_block}. Exiting.")
         else:
             print(f"Populating up to height {args.height}...")
-            slow_provider = BlockchainAPIJSON(block_endpoint=args.endpoint)
+
+            if args.use_async:
+                slow_provider = BlockchainAPIAsync(block_endpoint=args.endpoint)
+            else:
+                slow_provider = BlockchainAPIJSON(block_endpoint=args.endpoint)
+
             provider = PersistentBlockchainAPIData(data_provider=slow_provider)
             with SessionLocal() as session:
-                provider.populate_blocks(session, range(0, args.height+1), show_progressbar=True)
+                provider.populate_blocks(session, range(0, args.height + 1), show_progressbar=True)
             print("Done.")

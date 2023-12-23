@@ -29,3 +29,32 @@
     - [ ] My definition
 - [ ] Data Preparation
     - [ ] Duplicate Transactions
+
+## Ideas and Notes
+#### Frequency Distribution of Transactions within Blocks
+<!-- TODO: -->
+```sql
+WITH HeightRanges AS (
+    SELECT
+        FLOOR(height / :increment) * :increment AS RangeStart,
+        LEAST(FLOOR(height / :increment) * :increment + :increment - 1, MAX(height) OVER()) AS RangeEnd
+    FROM
+        blocks
+)
+SELECT
+    RangeStart,
+    RangeEnd,
+    COUNT(transactions.id) AS TransactionCount
+FROM
+    HeightRanges
+JOIN
+    transactions ON transactions.block_height BETWEEN HeightRanges.RangeStart AND HeightRanges.RangeEnd
+GROUP BY
+    RangeStart, RangeEnd
+ORDER BY
+    RangeStart;
+```
+
+Some results:
+```
+```

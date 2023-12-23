@@ -1,20 +1,57 @@
+from collections.abc import Iterator, Generator
 from abc import ABC, abstractmethod
 import json
 import time
+import copy
 import traceback
-from typing import Dict, Optional, Set
+from typing import Dict
 from pathlib import Path
 
 import requests
+import traceback
+import concurrent.futures
+import asyncio
+import aiohttp
+import requests
 import numpy as np
+from sqlalchemy import tuple_
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.sql.expression import func
 
+from aio_utils import asyncio_run, asyncio_gather
 from models.bitcoin_data import Block, Tx, Input, Output, Address, DUPLICATE_TRANSACTIONS
 
 
-BLOCKCHAIN_INFO_BLOCK_ENDPOINT = "https://blockchain.info/rawblock/{height}?format=json"
-BLOCKCHAIN_INFO_TX_ENDPOINT = "https://blockchain.info/rawtx/{tx_hash}?format=json"
+BLOCKCHAIN_INFO_BLOCK_ENDPOINT = "https://blockchain.info/rawblock/"
+BLOCKCHAIN_INFO_TX_ENDPOINT = "https://blockchain.info/rawtx/"
+
+
+def chunked_ranges(lowest, highest, buffer: int = 100) -> list[tuple[int, int]]:
+
+    ranges = []
+
+    total = highest - lowest + 1
+    if buffer > total:
+        buffer = total
+
+    start = lowest
+    if buffer > 0:
+        while start <= highest - buffer + 1:
+            ranges.append((start, start + buffer - 1))
+            start += buffer
+
+        remaining_blocks = highest - start + 1
+        if remaining_blocks > 0:
+            ranges.append((highest - remaining_blocks +
+                          1 * (start > lowest), highest))
+    else:
+        ranges.append((0, 0))
+
+    return ranges
+
+
+def chunked_indices(items: list, buffer: int):
+    return [(start, end + 1) for (start, end) in chunked_ranges(0, len(items) - 1, buffer)]
 
 
 class InvalidDataError(Exception):
@@ -221,12 +258,17 @@ class BlockchainAPIJSON:
             try:
                 if self.verbosity >= 3:
                     blockstore_start = time.perf_counter()
-                api_response = requests.get(f'{self.block_endpoint}{str(height)}')
+
+                self.block_endpoint.strip('/')
+                api_response = requests.get(f'{self.block_endpoint}/{str(height)}')
                 block_data = api_response.json()
 
                 # make sure the data stored is at least somewhat correct
                 if 'height' not in block_data or not block_data['height'] == height:
-                    raise InvalidDataError("The block data received was invalid.")
+                    error_message = f"contains attributes {list(block_data.keys())}"
+                    if 'error' in block_data and 'message' in block_data:
+                        error_message = f"Got error {block_data['error']} with message {block_data['message']}"
+                    raise InvalidDataError(f"The block data received was invalid. Error info from api: {error_message}.")
                 successful = True
                 if self.verbosity >= 3:
                     print(f"block {height} successfully loaded in {time.perf_counter() - blockstore_start} seconds")
@@ -255,7 +297,7 @@ class BlockchainAPIJSON:
         return block_data
 
     def get_blocks_json(self, heights: list[int]) -> dict[int, dict[str, object]]:
-        return {height: self.get_block(height) for height in heights}
+        return {height: self.get_block_json(height) for height in heights}
 
     def get_tx_json(self, _hash: str) -> dict[str, object]:
         """Using the given API endpoint, keep attempting to load a bitcoin transaction until the maximum number of retries have been done.
@@ -308,6 +350,155 @@ class BlockchainAPIJSON:
         return tx_data
 
 
+class BlockchainAPIAsync:
+    def __init__(self, block_endpoint='https://blockchain.info/rawblock/', max_retries=20, max_connections=20,
+                 disable_http_keep_alive=True, timeout=50, retry_delay: float = 10,
+                 verbosity: int = 1):
+
+        self.block_endpoint = block_endpoint
+
+        self.request_heights = {}
+        self.failed_heights = set()
+
+        # retrying if a request fails
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+
+        # Settings for HTTP session
+        self.timeout = timeout
+        self.max_connections = max_connections
+        self.disable_http_keep_alive = disable_http_keep_alive
+
+        self.errors = []
+        self.verbosity = verbosity
+
+    async def __get_block_async(self, session: aiohttp.ClientSession, height: int) -> asyncio.Task:
+        api_request = f'{self.block_endpoint}{height}'
+        self.request_heights[api_request] = height
+
+        try:
+            retrieval_task = await session.get(api_request, timeout=self.timeout)
+            return retrieval_task
+        except (aiohttp.ClientConnectorError, asyncio.TimeoutError,
+                aiohttp.client_exceptions.ClientConnectionError) as e:
+            if self.verbosity >= 3:
+                print(f"{type(e).__name__} occurred while getting block at height {height}")
+            if not self.errors or (self.errors and self.errors[-1] != type(e)):
+                self.errors.append(type(e))
+                if self.verbosity >= 2:
+                    print(f"Got {type(e).__name__}: {e}")
+            self.failed_heights.add(height)
+        except Exception as e:
+            if self.verbosity >= 3:
+                print(f"Unhandled {type(e).__name__} occurred while getting block at height {height}")
+            if not self.errors or (self.errors and self.errors[-1] != type(e)):
+                self.errors.append(type(e))
+                if self.verbosity >= 2:
+                    print(f"Got unhandled {type(e).__name__}: {e}")
+            raise e
+
+        return None
+
+    async def __get_blocks_async(self, heights: list[int]):
+
+        tcp_connector = aiohttp.TCPConnector(limit=self.max_connections,
+                                             force_close=self.disable_http_keep_alive)
+        async with aiohttp.ClientSession(connector=tcp_connector) as session:
+            tasks: list[asyncio.Task] = []
+            for height in heights:
+                tasks.append(self.__get_block_async(session, height))
+            responses: asyncio.Future[list[aiohttp.ClientResponse]] = await asyncio_gather(*tasks, return_exceptions=True)
+
+            response: aiohttp.ClientResponse
+            for response in responses:
+                if response:
+                    try:
+                        if isinstance(response, Exception):
+                            raise response
+                        block_height = self.request_heights[str(response.url)]
+                        if response.status == 429:
+                            raise RateLimitException(f"Got rate limited for too many requests at block {block_height}.")
+                        if not response.ok:
+                            raise FailedRequestException(f"The request for block {block_height}"
+                                                         f" failed with code {response.status}.")
+                        block_json: dict[str, object] = await response.json()
+                        if not ('height' in block_json and block_height == block_json['height']):
+                            raise InvalidDataError(f"The JSON data returned for block {block_height} came back invalid.")
+                        self.block_json[block_height] = block_json
+                    except (AssertionError, json.decoder.JSONDecodeError, FailedRequestException,
+                            asyncio.TimeoutError, aiohttp.client_exceptions.ServerDisconnectedError,
+                            InvalidDataError, aiohttp.client_exceptions.ClientPayloadError) as e:
+                        failed_height = self.request_heights[str(response.url)]
+                        self.failed_heights.add(failed_height)
+                        if not self.errors or (self.errors and self.errors[-1] != type(e)):
+                            self.errors.append(type(e))
+                            if self.verbosity >= 2:
+                                print(f"Got {type(e).__name__}: {e}")
+                    except Exception as e:
+                        raise e
+
+    def get_blocks_exception_handler(self, heights: list[int]):
+        try:
+            asyncio_run(self.__get_blocks_async(heights))
+        except concurrent.futures._base.TimeoutError as e:
+            if self.verbosity >= 2:
+                print(f"Got {type(e).__name__}. Finding failed blocks.")
+            required_heights = set(heights)
+            loaded_heights = set()
+            for height, block_data in self.block_json.items():
+                if 'height' in block_data and block_data['height'] == height:
+                    loaded_heights.add(height)
+            unloaded_heights = required_heights.difference(loaded_heights)
+            if self.verbosity >= 2:
+                print(f"{len(unloaded_heights)} blocks were not loaded")
+            self.failed_heights.update(unloaded_heights)
+        except Exception as e:
+            raise e
+
+    def __retry_failed_get_blocks_async(self):
+        failed_heights = self.failed_heights.copy()
+        self.failed_heights = set()
+        self.errors = []
+        self.get_blocks_exception_handler(list(failed_heights))
+
+    def get_blocks_json(self, heights: list[int]) -> dict[int, dict]:
+        retries = 0
+        try:
+            self.get_blocks_exception_handler(heights)
+        except Exception as e:
+            raise e
+        # retry any failed API requests
+        while retries < self.max_retries and self.failed_heights:
+            if self.verbosity >= 2:
+                print(f'Got {len(self.failed_heights)} errors. Retrying in {self.retry_delay} seconds')
+            time.sleep(self.retry_delay)
+            try:
+                self.__retry_failed_get_blocks_async()
+            except Exception as e:
+                raise e
+            retries += 1
+
+        result = copy.deepcopy(self.block_json)
+        self.block_json.clear()
+        self.failed_heights = set()
+        self.errors = []
+        return result
+
+    def get_blocks_json_range(self, min_height: int, max_height: int) -> dict[int, dict]:
+        """_summary_
+
+        Args:
+            min_height (int)
+            max_height (int)
+            max_retries (float, optional): How many times to retry if something fails. Defaults to 100.
+            retry_delay (int, optional): number of seconds to wait before retrying API calls. Defaults to 10.
+
+        Returns:
+            dict[int, dict]: Blockchain data with heights as keys
+        """
+        return self.get_blocks_json(range(min_height, max_height + 1))
+
+
 class PersistentBlockchainAPIData(BlockchainDataProviderADT):
     """Persist data from the Blockchain.info API to a database.
 
@@ -323,6 +514,7 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
         self.current_input_id = 0
         self.current_output_id = 0
         self.current_address_id = 0
+        
         # self.unique_id_manager = unique_id_manager if unique_id_manager else UniqueIDManager()
 
         self.duplicate_transactions = {}
@@ -374,6 +566,25 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
                 raise FileNotFoundError(f"Transaction with hash {tx_hash} not found in database")
 
         return tx_obj
+
+    def get_txs_for_blocks(self, session: Session, min_height: int, max_height: int, buffer: int = 100) -> Generator[Tx, None, None]:
+        
+        options = (
+            joinedload(Tx.inputs)
+            .joinedload(Input.prev_out),
+            joinedload(Tx.outputs)
+            .joinedload(Output.address)
+        )
+        
+        # Iterate through the blocks in the specified range
+        block_query = session.query(Block).filter(Block.height >= min_height, Block.height <= max_height)
+        for block in block_query:
+            tx_count = len(block.transactions)
+            for i in range(0, tx_count, buffer):
+                # Fetch transactions in chunks
+                txs = session.query(Tx).options(options).filter(Tx.block_height == block.height).offset(i).limit(buffer).all()
+                for tx in txs:
+                    yield tx
 
     def get_input(self, session: Session, input_id: int) -> Input:
         input_obj = session.query(Input).options(
@@ -438,6 +649,20 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
 
             session.add_all(list(addr_dict.values()) + outputs)
 
+    def get_previous_outputs(self, session, inputs):
+        # Create a set of unique identifiers for previous outputs
+        prev_output_ids = {(input['prev_out']['tx_index'], input['prev_out']['n']) for input in inputs}
+
+        # Query all these outputs in one go
+        prev_outputs = session.query(Output).join(Tx, Output.transaction).filter(
+            tuple_(Tx.index, Output.index_in_tx).in_(prev_output_ids)
+        ).all()
+
+        # Convert to a dict for quick access
+        prev_outputs_dict = {(output.transaction.index, output.index_in_tx): output for output in prev_outputs}
+
+        return prev_outputs_dict
+
     def parse_tx(self, session: Session, tx_index_in_block: int, json_data: dict,
                  block: Block, block_tx_index_dict: Dict[int, int]) -> Tx:
 
@@ -456,6 +681,13 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
 
         assert 'inputs' in json_data, f"Inputs not found in transaction {tx.hash}"
         assert 'out' in json_data, f"Outputs not found in transaction {tx.hash}"
+        
+        # Get all previous outputs in one go
+        prev_outputs = self.get_previous_outputs(session, [
+            input_data for input_data in json_data['inputs']
+            if (tx_index_in_block != 0 and
+                int(input_data['prev_out']['tx_index']) not in block_tx_index_dict)
+        ])
 
         tx.inputs = []
         for input_idx, input_data in enumerate(json_data['inputs']):
@@ -484,10 +716,11 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
                 prev_output = block.transactions[prev_out_tx_index_in_block].outputs[prev_out_index_in_tx]
             else:
                 # get previous output that should have already been populated
-                prev_output = session.query(Output).filter(
-                    Output.transaction.has(index=int(prev_out_tx_index)),
-                    Output.index_in_tx == int(prev_out_index_in_tx)
-                ).first()
+                prev_output = prev_outputs[(prev_out_tx_index, prev_out_index_in_tx)]
+                # prev_output = session.query(Output).filter(
+                #     Output.transaction.has(index=int(prev_out_tx_index)),
+                #     Output.index_in_tx == int(prev_out_index_in_tx)
+                # ).first()
 
             assert prev_output is not None, \
                 f"Previous output for non-coinbase input {new_input.id} not found in database" \
@@ -554,9 +787,9 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
             # if (block_height > 0 and block_height % 100 == 0) or block_height == highest_block:
             #     session.commit()
 
-    def populate_block(self, session: Session, block_height: int, populate_addresses=True):
-        # parse the block into the unique_id_manager
-        block_json = self.data_provider.get_block_json(height=block_height)
+    def populate_block(self, session: Session, block_height: int, populate_addresses=True, block_json=None):
+        if block_json is None:
+            block_json = self.data_provider.get_block_json(height=block_height)
 
         ### find the current highest input ID, output ID, and TX ID to continue from
 
@@ -596,6 +829,8 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
         block_heights = list(block_heights)
         block_heights.sort()
 
+        self.block_json: dict[int, object] = {}
+
         # get the highest block height that already exists in the database
         highest_block = session.query(Block).order_by(Block.height.desc()).first()
         if fail_if_exists and highest_block is not None:
@@ -610,7 +845,18 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
 
         if show_progressbar:
             from tqdm import tqdm
-            block_heights = tqdm(block_heights)
+            block_heights_progressbar = tqdm(block_heights)
 
-        for block in block_heights:
-            self.populate_block(session, block)
+        buffer_size = 20
+        ranges = chunked_indices(block_heights, buffer_size)
+
+        for start, end in ranges:
+            block_json = self.data_provider.get_blocks_json(block_heights[start:end])
+
+            for block_height in block_heights[start:end]:
+                self.populate_block(session, block_height, block_json=block_json[block_height])
+                if show_progressbar:
+                    block_heights_progressbar.update(1)
+
+        if show_progressbar:
+            block_heights_progressbar.close()

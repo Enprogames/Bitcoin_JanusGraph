@@ -11,37 +11,9 @@ from models.bitcoin_data import (
     Input,
     Address
 )
-from blockchain_data_provider import BlockchainDataProviderADT
+from blockchain_data_provider import BlockchainDataProviderADT, chunked_indices, chunked_ranges
 
 from graph.base import g
-
-
-def chunked_ranges(lowest, highest, buffer: int = 100) -> list[tuple[int, int]]:
-
-    ranges = []
-
-    total = highest - lowest + 1
-    if buffer > total:
-        buffer = total
-
-    start = lowest
-    if buffer > 0:
-        while start <= highest - buffer + 1:
-            ranges.append((start, start + buffer - 1))
-            start += buffer
-
-        remaining_blocks = highest - start + 1
-        if remaining_blocks > 0:
-            ranges.append((highest - remaining_blocks +
-                          1 * (start > lowest), highest))
-    else:
-        ranges.append((0, 0))
-
-    return ranges
-
-
-def chunked_indices(items: list, buffer: int):
-    return [(start, end + 1) for (start, end) in chunked_ranges(0, len(items) - 1, buffer)]
 
 
 def haircut(input_value: float, sum_of_inputs: int, output_value: float) -> float:
@@ -68,6 +40,8 @@ class PopulateOutputProportionGraph:
 
         block_heights = list(block_heights)
         block_heights.sort()
+        
+        highest_to_populate = block_heights[-1]
 
         highest_id = g.V().hasLabel('output').values('id').max().toList()
 
@@ -89,24 +63,44 @@ class PopulateOutputProportionGraph:
             from tqdm import tqdm
             block_heights = tqdm(block_heights)
 
-        for height in block_heights:
-            block = self.data_provider.get_block(session, height)
+        height = 0
 
-            for tx in block.transactions:
+        tx: Tx
+        for tx in self.data_provider.get_txs_for_blocks(session, min_height=0, max_height=highest_to_populate, buffer=1000):
 
-                tx_sum = tx.total_input_value()
-                for output in tx.outputs:
-                    if not output.valid:
-                        continue
+            tx_sum = tx.total_input_value()
+            output: Output
+            for output in tx.outputs:
+                if not output.valid:
+                    continue
 
-                    output_node = g.addV('output').property(
-                        "id", output.id).next()
-                    for input in tx.inputs:
-                        haircut_value = haircut(input.prev_out.value, tx_sum, output.value)
-                        g.addE('sent') \
-                            .from_(__.V().has('id', input.prev_out.id)) \
-                            .to(output_node) \
-                            .property('value', haircut_value).next()
+                # create a new output node if it doesn't exist
+                output_node = g.V().has('output', 'id', output.id).fold().coalesce(
+                    __.unfold(),
+                    __.addV('output').property('id', output.id)
+                ).next()
+
+                # create a new address node if it doesn't exist
+                address_node = g.V().has('address', 'id', output.address.id).fold().coalesce(
+                    __.unfold(),
+                    __.addV('address').property('id', output.address.id)
+                ).next()
+
+                # connect the address node to the output node
+                g.V(output_node).addE('has_address').to(address_node).next()
+
+                input: Input
+                for input in tx.inputs:
+                    haircut_value = haircut(input.prev_out.value, tx_sum, output.value)
+                    g.addE('sent') \
+                        .from_(__.V().has('id', input.prev_out.id)) \
+                        .to(output_node) \
+                        .property('value', haircut_value).next()
+                        
+                if tx.block_height > height:
+                    height = tx.block_height
+                    if show_progressbar:
+                        block_heights.update(1)
 
 
 if __name__ == '__main__':
@@ -138,9 +132,10 @@ if __name__ == '__main__':
             print("Populating graph...")
 
             if args.height is not None:
-                highest_block = session.query(Block).get(height=args.height)
+                # highest_block: Block = session.query(Block).get(args.height)
+                highest_block: Block = session.get(Block, args.height)
             else:
-                highest_block = session.query(Block).order_by(Block.height.desc()).first()
+                highest_block: Block = session.query(Block).order_by(Block.height.desc()).first()
 
             if not highest_block:
                 print("No blocks found in database. Cannot populate graph. Exiting.")

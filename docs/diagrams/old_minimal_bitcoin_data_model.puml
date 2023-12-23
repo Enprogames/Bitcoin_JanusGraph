@@ -2,11 +2,12 @@
 
 package "Bitcoin Data Model" {
 
-    class Block {
+    class blocks {
         + height: int
     }
 
-    class Transaction {
+    class transactions {
+        + id: int
         + hash: string
         + index_in_block: int
         + is_duplicate: bool
@@ -14,7 +15,8 @@ package "Bitcoin Data Model" {
         + block: Block
     }
 
-    class Output {
+    class outputs {
+        + id: int
         + index_in_tx: int
         + value: float
         + valid: bool
@@ -23,14 +25,15 @@ package "Bitcoin Data Model" {
         + address: Address
     }
 
-    class Input {
+    class inputs {
+        + id: int
         + index_in_tx: int
         ---
         + prev_out: Output
         + transaction: Transaction
     }
 
-    class Address {
+    class addresses {
         + addr: string
     }
 

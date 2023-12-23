@@ -21,8 +21,40 @@ from models.base import Base, engine
 # Otherwise, SQLAlchemy won't know about them
 from models.bitcoin_data import Block, Tx, Input, Output, Address
 
-if __name__ == "__main__":
-    print("Creating database tables...")
+import time
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+from models.base import Base, engine
+
+max_retries = 5
+retry_interval = 10  # seconds
+
+
+def wait_for_db():
+    retries = 0
+    while retries < max_retries:
+        try:
+            # Try to connect to the database
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))  # This query will throw an exception if the database is not ready
+            print("Connected to database.")
+            return
+        except OperationalError:
+            retries += 1
+            print(f"Database not ready. Waiting for {retry_interval} seconds. Retry {retries}/{max_retries}")
+            time.sleep(retry_interval)
+    print("Failed to connect to the database after several retries.")
+    sys.exit(1)
+
+
+def create_tables():
     Base.metadata.create_all(engine)  # Creates tables based on your models
+
+
+if __name__ == "__main__":
+    # Wait for the database to be ready
+    wait_for_db()
+    print("Creating database tables...")
+    create_tables()
 
     print("Database tables created.")

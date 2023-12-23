@@ -1,4 +1,7 @@
 import networkx as nx
+from gremlin_python import statics
+from gremlin_python.process.anonymous_traversal import traversal
+from gremlin_python.process.graph_traversal import __
 from gremlin_python.process.graph_traversal import GraphTraversalSource
 
 from graph.base import g
@@ -8,7 +11,7 @@ class GraphAnalyzer:
     def __init__(self):
         pass
 
-    def to_networkx(self, subgraph_traversal) -> nx.DiGraph:
+    def to_networkx(self, subgraph_traversal, limit=10_000) -> nx.DiGraph:
         """Given a gremlin-python graph traversal, specifying a subgraph, return a networkx graph.
         """
         # Create a NetworkX graph (directed or undirected based on your graph's nature)

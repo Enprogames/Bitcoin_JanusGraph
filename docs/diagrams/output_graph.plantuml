@@ -1,23 +1,21 @@
 @startuml
 title Bitcoin Data Graph
 
-class Owner {
+class owner {
     id : int
-    name : String
 }
 
-class Address {
+class address {
     + id : int
-    + addr : String
     ---
     + owner : Owner
 }
 
-class Sent {
+class sent {
     + value : float
 }
 
-class Output {
+class output {
     + id : int
     + value : int
     + is_coinbase : bool

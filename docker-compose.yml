@@ -18,11 +18,11 @@ services:
     ports:
       - "5000:5000"
     depends_on:
-      - btc_janusgraph
-      - btc_postgres_db
+      - btc_janus
+      - btc_postgres
 
-  btc_postgres_db:
-    container_name: btc_postgres_db
+  btc_postgres:
+    container_name: btc_postgres
     image: postgres
     restart: unless-stopped
     networks:
@@ -30,33 +30,34 @@ services:
     ports:
     - "${DATABASE_PORT}:${DATABASE_PORT}"
     volumes:
-      - ${DATABASE_FOLDER:-./data/btc_postgres_db}:/var/lib/postgresql/data
+      - ${DATABASE_FOLDER:-./data/btc_postgres}:/var/lib/postgresql/data
     environment:
     - POSTGRES_DB=${DATABASE_NAME}
     - POSTGRES_USER=${DATABASE_USER}
     - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
 
-  btc_janusgraph:
-    image: janusgraph/janusgraph:latest
-    container_name: btc_janusgraph
-    environment:
-      # janusgraph.graph.set-vertex-id: true
-      # janusgraph.graph.allow-custom-vid-types: true
-      janusgraph.storage.backend: berkeleyje
-      # janusgraph.storage.backend: cassandra
-      # janusgraph.index.default.backend: lucene
+  btc_janus:
+    build:
+      context: ./janusgraph/
+    container_name: btc_janus
     ports:
       - "${JANUSGRAPH_PORT:-8182}:${JANUSGRAPH_PORT:-8182}"
       - "8484:8184"
     networks:
       - btc-network
     volumes:
-      - ${GRAPH_DB_FOLDER:-./data/btc_janusgraph}:/var/lib/janusgraph
+      - ${GRAPH_DB_FOLDER:-./data/btc_janus}:/var/lib/janusgraph
     healthcheck:
       test: ["CMD", "bin/gremlin.sh", "-e", "scripts/remote-connect.groovy"]
       interval: 10s
       timeout: 60s
       retries: 4
+    environment:
+      janusgraph.storage.backend: berkeleyje
+      # janusgraph.graph.set-vertex-id: true
+      # janusgraph.graph.allow-custom-vid-types: true
+      # janusgraph.index.default.backend: lucene
+      # janusgraph.storage.backend: cassandra
 
 
 networks:
