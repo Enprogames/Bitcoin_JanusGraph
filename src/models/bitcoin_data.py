@@ -1,5 +1,6 @@
 from sqlalchemy import (
     Column,
+    Index,
     Integer,
     BigInteger,
     String,
@@ -7,7 +8,7 @@ from sqlalchemy import (
     ForeignKey
 )
 from sqlalchemy.orm import relationship
-from models.base import Base
+import models.base
 
 
 BITCOIN_TO_SATOSHI = 1e8
@@ -35,15 +36,16 @@ DUPLICATE_TRANSACTIONS = [
 ]
 
 
-class Block(Base):
+class Block(models.base.Base):
     __tablename__ = 'blocks'
     height = Column(Integer, primary_key=True)
     transactions = relationship("Tx", back_populates="block",
                                 cascade="all, delete, delete-orphan",
-                                order_by="Tx.index_in_block")
+                                order_by="Tx.index_in_block",
+                                passive_deletes=True)
 
 
-class Tx(Base):
+class Tx(models.base.Base):
     __tablename__ = "transactions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -52,15 +54,17 @@ class Tx(Base):
     index = Column(BigInteger, index=True)
     index_in_block = Column(Integer, index=True)
     is_duplicate = Column(Boolean, default=False, index=True)
-    block_height = Column(Integer, ForeignKey("blocks.height"), index=True)
+    block_height = Column(Integer, ForeignKey("blocks.height", ondelete="CASCADE"), index=True)
 
-    block = relationship("Block", back_populates="transactions")
+    block = relationship("Block", back_populates="transactions", passive_deletes=True)
     outputs = relationship("Output", back_populates="transaction",
                            cascade="all, delete, delete-orphan",
-                           order_by="Output.index_in_tx")
+                           order_by="Output.index_in_tx",
+                           passive_deletes=True)
     inputs = relationship("Input", back_populates="transaction",
                           cascade="all, delete, delete-orphan",
-                          order_by="Input.index_in_tx")
+                          order_by="Input.index_in_tx",
+                          passive_deletes=True)
 
     def total_input_value(self):
         if self.is_coinbase():
@@ -84,29 +88,35 @@ class Tx(Base):
         return self.index_in_block == 0
 
 
-class Output(Base):
+class Output(models.base.Base):
     __tablename__ = "outputs"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     index_in_tx = Column(Integer)
     value = Column(BigInteger)
 
-    tx_id = Column(Integer, ForeignKey("transactions.id"))
-    address_id = Column(Integer, ForeignKey("addresses.id"), index=True)
+    tx_id = Column(Integer, ForeignKey("transactions.id", ondelete="CASCADE"))
+    address_id = Column(Integer, ForeignKey("addresses.id", ondelete="CASCADE"), index=True)
 
     # some outputs are unspendable, and we will not be able to
     # find the address for them
     valid = Column(Boolean, default=True, index=True)
 
-    transaction = relationship("Tx", back_populates="outputs")
-    address = relationship("Address", back_populates="outputs")
-    # inputs = relationship("Input", back_populates="prev_out")
+    transaction = relationship("Tx", back_populates="outputs",
+                               passive_deletes=True)
+    address = relationship("Address", back_populates="outputs",
+                           passive_deletes=True)
+
+    # Composite index for efficient querying
+    __table_args__ = (
+        Index('idx_output_tx_index_in_tx', 'tx_id', 'index_in_tx'),
+    )
 
     def __repr__(self):
-        return f"<Output(value={self.value})>"
+        return f"<Output(value={self.id})>"
 
     def __str__(self):
-        return f"<Output(value={self.value})>"
+        return f"<Output(id={self.id})>"
 
     def __eq__(self, other):
         return self.id == other.id
@@ -115,7 +125,7 @@ class Output(Base):
         return self.id
 
 
-class Input(Base):
+class Input(models.base.Base):
     __tablename__ = "inputs"
 
     """Each output should have a unique ID.
@@ -131,11 +141,11 @@ class Input(Base):
     """
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     index_in_tx = Column(Integer)
-    prev_out_id = Column(Integer, ForeignKey("outputs.id"), nullable=True, index=True)
-    tx_id = Column(Integer, ForeignKey("transactions.id"))
+    prev_out_id = Column(Integer, ForeignKey("outputs.id", ondelete="CASCADE"), nullable=True, index=True)
+    tx_id = Column(Integer, ForeignKey("transactions.id", ondelete="CASCADE"))
 
-    prev_out = relationship("Output")
-    transaction = relationship("Tx", back_populates="inputs")
+    prev_out = relationship("Output", passive_deletes=True)
+    transaction = relationship("Tx", back_populates="inputs", passive_deletes=True)
 
     def __repr__(self):
         return f"<Input(id={self.id})>"
@@ -150,12 +160,12 @@ class Input(Base):
         return self.id
 
 
-class Address(Base):
+class Address(models.base.Base):
     __tablename__ = "addresses"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     addr = Column(String, index=True)
-    outputs = relationship("Output", back_populates="address")
+    outputs = relationship("Output", back_populates="address", passive_deletes=True)
 
     def __repr__(self):
         return f"<Address(addr={self.addr})>"

@@ -20,6 +20,9 @@ EXEC_APP := $(DOCKER_COMPOSE_EXEC_APP) bash -c
 BLOCK_HEIGHT ?= 100000
 API_ENDPOINT ?= "https://blockchain.info/rawblock/"
 
+# Alembic Parameters
+MESSAGE ?= "Alembic migration"
+
 # Targets
 .PHONY: all start stop ps populate populate_blocks populate_graph test clean full_clean
 
@@ -49,6 +52,10 @@ populate_blockchain:
 delete_blockchain:
 	@echo "Deleting blocks..."
 	@$(EXEC_APP) "python src/blockchain_populate.py --delete"
+
+migrate:
+	@echo "Migrating..."
+	@$(EXEC_APP) "alembic revision --autogenerate -m '$(MESSAGE)'"
 
 populate_graph:
 	@echo "Populating graph..."

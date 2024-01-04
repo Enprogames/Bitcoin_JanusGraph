@@ -37,11 +37,11 @@ package "Bitcoin Data Model" {
         + addr: string
     }
 
-    Transaction "1" -- "many" Output : contains
-    Transaction "1" -- "many" Input : contains
-    Block "1" -- "many" Transaction : contains
-    Output "1" -- "1" Address : Output Address
-    Input "1" -- "1" Output : Previous Output
+    transactions "1" -- "N" outputs : contains
+    transactions "1" -- "N" inputs : contains
+    blocks "1" -- "N" transactions : contains
+    outputs "N" -- "1" addresses : Output Address
+    inputs "1" -- "1" outputs : Previous Output
 
 }
 

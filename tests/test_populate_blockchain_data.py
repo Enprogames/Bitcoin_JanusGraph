@@ -4,7 +4,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from utils import MockDataProvider
-from models.bitcoin_data import Base, Block, Tx
+from models.base import Base
+from models.bitcoin_data import Block, Tx
 from blockchain_data_provider import PersistentBlockchainAPIData
 
 # Constants

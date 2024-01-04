@@ -1,16 +1,22 @@
 import sys
+import time
 from pathlib import Path
 
-container_src_path = Path('/app/src/')
-local_src_path = Path(Path.cwd(), 'src/')
+from alembic.config import Config
+from alembic import command
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+
+
+root_path = Path(__file__).parent
+
+src_path = root_path / "src"
 
 # see if this src path exists.
 # if it does, we are in a container.
 # if not, we are in local.
-if not container_src_path.exists():
-    src_path = local_src_path
-else:
-    src_path = container_src_path
+if not src_path.exists():
+    raise FileNotFoundError("src path does not exist. are you running this script locally?")
 
 src_path_str = str(src_path)
 if src_path_str not in sys.path:
@@ -21,13 +27,12 @@ from models.base import Base, engine
 # Otherwise, SQLAlchemy won't know about them
 from models.bitcoin_data import Block, Tx, Input, Output, Address
 
-import time
-from sqlalchemy import text
-from sqlalchemy.exc import OperationalError
-from models.base import Base, engine
-
 max_retries = 5
 retry_interval = 10  # seconds
+
+alembic_cfg_path = root_path / "alembic.ini"
+
+alembic_cfg = Config(alembic_cfg_path)
 
 
 def wait_for_db():
@@ -47,14 +52,11 @@ def wait_for_db():
     sys.exit(1)
 
 
-def create_tables():
-    Base.metadata.create_all(engine)  # Creates tables based on your models
-
-
 if __name__ == "__main__":
     # Wait for the database to be ready
     wait_for_db()
-    print("Creating database tables...")
-    create_tables()
+    print("Initializing database...")
 
-    print("Database tables created.")
+    command.upgrade(alembic_cfg, "head")
+
+    print("Database initialization successful.")

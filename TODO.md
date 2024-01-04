@@ -34,12 +34,16 @@
 #### Frequency Distribution of Transactions within Blocks
 <!-- TODO: -->
 ```sql
-WITH HeightRanges AS (
+WITH MaxHeight AS (
+    SELECT MAX(height) as max_height FROM blocks
+),
+HeightRanges AS (
     SELECT
         FLOOR(height / :increment) * :increment AS RangeStart,
-        LEAST(FLOOR(height / :increment) * :increment + :increment - 1, MAX(height) OVER()) AS RangeEnd
+        LEAST(FLOOR(height / :increment) * :increment + :increment - 1, (SELECT max_height FROM MaxHeight)) AS RangeEnd
     FROM
         blocks
+    GROUP BY RangeStart
 )
 SELECT
     RangeStart,
@@ -47,8 +51,8 @@ SELECT
     COUNT(transactions.id) AS TransactionCount
 FROM
     HeightRanges
-JOIN
-    transactions ON transactions.block_height BETWEEN HeightRanges.RangeStart AND HeightRanges.RangeEnd
+LEFT JOIN
+    transactions ON transactions.block_height >= HeightRanges.RangeStart AND transactions.block_height <= HeightRanges.RangeEnd
 GROUP BY
     RangeStart, RangeEnd
 ORDER BY
@@ -57,4 +61,20 @@ ORDER BY
 
 Some results:
 ```
+rangestart|rangeend|transactioncount|
+----------+--------+----------------+
+       0.0|  9999.0|           10092|
+   10000.0| 19999.0|           10044|
+   20000.0| 29999.0|           10076|
+   30000.0| 39999.0|           10125|
+   40000.0| 49999.0|           10442|
+   50000.0| 59999.0|           15602|
+   60000.0| 69999.0|           23723|
+   70000.0| 79999.0|           25047|
+   80000.0| 89999.0|           24329|
+   90000.0| 99999.0|           77093|
+  100000.0|109999.0|           73081|
+  110000.0|119999.0|          145826|
+  120000.0|129999.0|          255577|
+  130000.0|138146.0|          446362|
 ```

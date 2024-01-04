@@ -1,12 +1,12 @@
 # Use an official Python runtime based on Debian 10 ("buster") as a parent image
-FROM python:3.11-buster
+FROM python:3.12
 
 # Configure apt
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get -y install --no-install-recommends apt-utils 2>&1
 
-RUN apt-get install -y libssl-dev
+RUN apt-get install -y libssl-dev iputils-ping net-tools
 
 RUN python3 -m pip install --upgrade pip
 

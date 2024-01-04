@@ -19,14 +19,14 @@ class output {
     + id : int
     + value : int
     + is_coinbase : bool
-    + tainted : bool
     + label : String
     ---
     + address : Address
 }
 
-Owner "1" <-- "many" Address : Owns
-Address "1" <-- "many" Output : Output Address
-Output "many" -- "many" Output : Sent (Haircut Proportion)
+owner "1" <-- "N" address : owns
+address "1" <-- "N" output : output address
+output "1" -- "N" sent
+sent "N" -- "1" output
 
 @enduml

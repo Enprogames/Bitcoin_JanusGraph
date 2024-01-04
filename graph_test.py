@@ -26,10 +26,13 @@ from gremlin_python.process.graph_traversal import __
 from gremlin_python.process.strategies import *
 from gremlin_python.process.graph_traversal import GraphTraversalSource
 
-load_dotenv()
 
 # clear database
-g.V().drop().iterate()
+# g.V().drop().iterate()
+
+pass
+
+exit()
 
 # add vertices
 # CUSTOM VERTEX ID DOESN'T WORK

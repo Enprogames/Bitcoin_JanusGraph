@@ -1,6 +1,9 @@
+alembic
+async-timeout
 # 3.5.7 works!
-# gremlinpython>=3.5,<3.6
-gremlinpython>=3.7.1
+gremlinpython>=3.5.8,<3.6
+# 3.6.0, 3.7.0, and 3.7.1 do not work!
+# gremlinpython>=3.7.1
 ipykernel
 networkx
 numpy
@@ -11,3 +14,4 @@ python-dotenv
 requests
 SQLAlchemy
 tqdm
+pgcli

@@ -259,7 +259,7 @@ class BlockchainAPIJSON:
                 if self.verbosity >= 3:
                     blockstore_start = time.perf_counter()
 
-                self.block_endpoint.strip('/')
+                self.block_endpoint = self.block_endpoint.strip('/')
                 api_response = requests.get(f'{self.block_endpoint}/{str(height)}')
                 block_data = api_response.json()
 
@@ -355,6 +355,7 @@ class BlockchainAPIAsync:
                  disable_http_keep_alive=True, timeout=50, retry_delay: float = 10,
                  verbosity: int = 1):
 
+        self.block_json: dict[int, dict[str, object]] = {}
         self.block_endpoint = block_endpoint
 
         self.request_heights = {}
@@ -506,6 +507,52 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
         BlockchainDataProviderADT (ABC): Implements the abstract
         interface for Bitcoin data providers.
     """
+    
+    class PopulationStatistics:
+        def __init__(self):
+            self.total_time = 0
+            self.block_population_time = 0
+            self.tx_population_time = 0
+            self.address_population_time = 0
+            self.api_request_time = 0
+
+            self.avg_block_population_time = 0
+            self.avg_tx_population_time = 0
+            self.avg_address_population_time = 0
+            self.avg_api_request_time = 0
+
+            self.total_blocks = 0
+            self.total_txs = 0
+            self.total_addresses = 0
+            self.total_api_requests = 0
+
+        def start_timer(self):
+            self.start_time = time.perf_counter()
+
+        def stop_timer(self):
+            self.total_time += time.perf_counter() - self.start_time
+
+        def calculate_averages(self):
+            if self.total_blocks > 0:
+                self.avg_block_population_time = self.block_population_time / self.total_blocks
+                self.avg_tx_population_time = self.tx_population_time / self.total_txs
+                self.avg_address_population_time = self.address_population_time / self.total_addresses
+                self.avg_api_request_time = self.api_request_time / self.total_api_requests
+
+        def __str__(self):
+            return f"Total time: {self.total_time}\n" \
+                   f"Block population time: {self.block_population_time}\n" \
+                   f"Transaction population time: {self.tx_population_time}\n" \
+                   f"API request time: {self.api_request_time}\n" \
+                   f"Address population time: {self.address_population_time}\n" \
+                   f"Average block population time: {self.avg_block_population_time}\n" \
+                   f"Average transaction population time: {self.avg_tx_population_time}\n" \
+                   f"Average address population time: {self.avg_address_population_time}\n" \
+                   f"Average API request time: {self.avg_api_request_time}\n" \
+                   f"Total blocks: {self.total_blocks}\n" \
+                   f"Total transactions: {self.total_txs}\n" \
+                   f"Total addresses: {self.total_addresses}\n" \
+                   f"Total API requests: {self.total_api_requests}\n"
 
     def __init__(self,
                  data_provider: BlockchainAPIJSON = None):
@@ -522,6 +569,8 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
             height = dup_tx['block_height']
             tx_hash = dup_tx['tx_hash']
             self.duplicate_transactions[height] = tx_hash
+
+        self.population_stats = self.PopulationStatistics()
 
     def get_block(self, session: Session, height: int) -> Block:
         block = session.query(Block) \
@@ -568,23 +617,48 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
         return tx_obj
 
     def get_txs_for_blocks(self, session: Session, min_height: int, max_height: int, buffer: int = 100) -> Generator[Tx, None, None]:
-        
+
         options = (
             joinedload(Tx.inputs)
             .joinedload(Input.prev_out),
             joinedload(Tx.outputs)
             .joinedload(Output.address)
         )
-        
+
+        tx_count = session.query(Tx.id)\
+                          .filter(Tx.block_height <= max_height, Tx.block_height >= min_height)\
+                          .count()
+
         # Iterate through the blocks in the specified range
-        block_query = session.query(Block).filter(Block.height >= min_height, Block.height <= max_height)
-        for block in block_query:
-            tx_count = len(block.transactions)
-            for i in range(0, tx_count, buffer):
-                # Fetch transactions in chunks
-                txs = session.query(Tx).options(options).filter(Tx.block_height == block.height).offset(i).limit(buffer).all()
-                for tx in txs:
-                    yield tx
+        for offset in range(0, tx_count, buffer):
+            # Fetch transactions in chunks
+            txs = session.query(Tx)\
+                         .options(options)\
+                         .filter(Tx.block_height <= max_height, Tx.block_height >= min_height)\
+                         .order_by(Tx.id)\
+                         .offset(offset)\
+                         .limit(buffer)\
+                         .all()
+            for tx in txs:
+                yield tx
+
+    def get_outputs_for_blocks(self, session: Session, min_height: int, max_height: int, buffer: int = 100) -> Generator[Output, None, None]:
+        # Calculate total number of outputs in the height range
+        total_outputs = session.query(Output.id) \
+                               .join(Tx, Output.tx_id == Tx.id) \
+                               .filter(Tx.block_height >= min_height, Tx.block_height <= max_height) \
+                               .count()
+
+        for offset in range(0, total_outputs, buffer):
+            # Fetch outputs in batches
+            outputs_batch = session.query(Output) \
+                                   .join(Tx, Output.tx_id == Tx.id) \
+                                   .filter(Tx.block_height >= min_height, Tx.block_height <= max_height) \
+                                   .order_by(Output.id) \
+                                   .offset(offset).limit(buffer).all()
+
+            for output in outputs_batch:
+                yield output
 
     def get_input(self, session: Session, input_id: int) -> Input:
         input_obj = session.query(Input).options(
@@ -622,49 +696,50 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
 
     def __populate_addresses(self, session: Session, block: Block):
 
-        addr_dict = {}
-        outputs = []
+        address_start_time = time.perf_counter()
 
-        with session.no_autoflush:
-            for tx in block.transactions:
-                for output in tx.outputs:
-                    addr = output.address_addr
-                    if addr is not None and addr not in addr_dict:
-                        # see if the address already exists
-                        address = session.query(Address).filter_by(addr=addr).first()
+        # Use a list to maintain the order of appearance
+        ordered_addresses_in_block = [output.address_addr for tx in block.transactions
+                                      for output in tx.outputs if output.address_addr is not None]
 
-                        # if the address doesn't exist, create it
-                        if not address:
-                            address = Address()
-                            address.addr = addr
-                            address.id = self.current_address_id
-                            self.current_address_id += 1
-                            address.outputs = []
-                        addr_dict[addr] = address
+        # Remove duplicates but preserve order
+        unique_ordered_addresses = []
+        seen = set()
+        for addr in ordered_addresses_in_block:
+            if addr not in seen:
+                seen.add(addr)
+                unique_ordered_addresses.append(addr)
 
-                    if addr is not None:
-                        addr_dict[addr].outputs.append(output)
-                        output.address = addr_dict[addr]
-                        outputs.append(output)
+        # Fetch existing addresses in one query
+        existing_addresses = session.query(Address).filter(Address.addr.in_(unique_ordered_addresses)).all()
+        existing_address_dict = {address.addr: address for address in existing_addresses}
 
-            session.add_all(list(addr_dict.values()) + outputs)
+        # Determine which addresses need to be created
+        new_addresses = [addr for addr in unique_ordered_addresses if addr not in existing_address_dict]
+        new_address_objects = [Address(addr=addr, id=self.current_address_id + i)
+                               for i, addr in enumerate(new_addresses)]
+        self.current_address_id += len(new_address_objects)
 
-    def get_previous_outputs(self, session, inputs):
-        # Create a set of unique identifiers for previous outputs
-        prev_output_ids = {(input['prev_out']['tx_index'], input['prev_out']['n']) for input in inputs}
+        # Bulk insert new addresses
+        session.add_all(new_address_objects)
+        # session.bulk_save_objects(new_address_objects)
 
-        # Query all these outputs in one go
-        prev_outputs = session.query(Output).join(Tx, Output.transaction).filter(
-            tuple_(Tx.index, Output.index_in_tx).in_(prev_output_ids)
-        ).all()
+        # Combine existing and new addresses into one dictionary for easy lookup
+        combined_address_dict = {**existing_address_dict, **{addr.addr: addr for addr in new_address_objects}}
 
-        # Convert to a dict for quick access
-        prev_outputs_dict = {(output.transaction.index, output.index_in_tx): output for output in prev_outputs}
+        # Update the address objects in outputs
+        for tx in block.transactions:
+            for output in tx.outputs:
+                if output.address_addr:
+                    output.address = combined_address_dict.get(output.address_addr)
 
-        return prev_outputs_dict
+        self.population_stats.address_population_time += time.perf_counter() - address_start_time
+        self.population_stats.total_addresses += len(new_addresses)
 
-    def parse_tx(self, session: Session, tx_index_in_block: int, json_data: dict,
-                 block: Block, block_tx_index_dict: Dict[int, int]) -> Tx:
+    def parse_tx(self, tx_index_in_block: int, json_data: dict,
+                 block: Block) -> Tx:
+
+        tx_start_time = time.perf_counter()
 
         tx = Tx()
         block.transactions.append(tx)
@@ -681,13 +756,6 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
 
         assert 'inputs' in json_data, f"Inputs not found in transaction {tx.hash}"
         assert 'out' in json_data, f"Outputs not found in transaction {tx.hash}"
-        
-        # Get all previous outputs in one go
-        prev_outputs = self.get_previous_outputs(session, [
-            input_data for input_data in json_data['inputs']
-            if (tx_index_in_block != 0 and
-                int(input_data['prev_out']['tx_index']) not in block_tx_index_dict)
-        ])
 
         tx.inputs = []
         for input_idx, input_data in enumerate(json_data['inputs']):
@@ -704,30 +772,9 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
 
             prev_out_tx_index = int(input_data['prev_out']['tx_index'])
             prev_out_index_in_tx = int(input_data['prev_out']['n'])
-            if prev_out_tx_index in block_tx_index_dict:
-                # the previous output is in a transaction in the same block
-                prev_out_tx_index_in_block = block_tx_index_dict[prev_out_tx_index]
-                assert prev_out_index_in_tx <= len(block.transactions[prev_out_tx_index_in_block].outputs) - 1, \
-                    f"Previous output for non-coinbase input {new_input.id} not found in block" \
-                    f" (prev_out_tx_index_in_block={prev_out_tx_index_in_block}, tx_index={prev_out_tx_index}," \
-                    f" index_in_tx={prev_out_index_in_tx}), tx_hash={tx.hash}, block_height={tx.block_height}," \
-                    f" tx_index_in_block={tx_index_in_block})"
 
-                prev_output = block.transactions[prev_out_tx_index_in_block].outputs[prev_out_index_in_tx]
-            else:
-                # get previous output that should have already been populated
-                prev_output = prev_outputs[(prev_out_tx_index, prev_out_index_in_tx)]
-                # prev_output = session.query(Output).filter(
-                #     Output.transaction.has(index=int(prev_out_tx_index)),
-                #     Output.index_in_tx == int(prev_out_index_in_tx)
-                # ).first()
-
-            assert prev_output is not None, \
-                f"Previous output for non-coinbase input {new_input.id} not found in database" \
-                f" (tx_index={prev_out_tx_index}, index_in_tx={prev_out_index_in_tx})" \
-                f" (tx_hash={tx.hash}, block_height={tx.block_height}, tx_index_in_block={tx_index_in_block})"
-
-            new_input.prev_out = prev_output
+            # Get prev_out id from the dictionary
+            new_input.prev_out_id = self.prev_output_ids_dict[(prev_out_tx_index, prev_out_index_in_tx)]
             tx.inputs.append(new_input)
 
         tx.outputs = []
@@ -745,9 +792,28 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
             else:
                 new_output.valid = False
                 new_output.address_addr = None
+
+            self.prev_output_ids_dict[(int(tx.index), int(output_idx))] = new_output.id
             tx.outputs.append(new_output)
 
+        self.population_stats.tx_population_time += time.perf_counter() - tx_start_time
+        self.population_stats.total_txs += 1
+
         return tx
+
+    def fetch_previous_output_ids(self, session, json_data: dict):
+        # TODO: Test this method
+        prev_output_refs = set()
+        for tx in json_data['tx']:
+            for input in tx['inputs']:
+                prev_output_refs.add((int(input['prev_out']['tx_index']), int(input['prev_out']['n'])))
+
+        prev_outputs = session.query(Output.id, Tx.index, Output.index_in_tx)\
+            .join(Tx, Output.tx_id == Tx.id)\
+            .filter(tuple_(Tx.index, Output.index_in_tx).in_(prev_output_refs))\
+            .all()
+
+        return {(tx_index, index_in_tx): output_id for output_id, tx_index, index_in_tx in prev_outputs}
 
     def parse_block(self, session: Session, height: int = None, json_data: dict = None) -> Block:
         if not (height or json_data):
@@ -757,11 +823,13 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
 
         block = Block()
         block.height = json_data['height']
-        block_tx_index_dict = {tx['tx_index']: i for i, tx in enumerate(json_data['tx'])}
         block.transactions = []
+
+        # Fetch IDs for previous outputs not in the current block
+        self.prev_output_ids_dict = self.fetch_previous_output_ids(session, json_data)
+
         for tx_idx, tx_json in enumerate(json_data['tx']):
-            self.parse_tx(session, tx_index_in_block=tx_idx, json_data=tx_json,
-                          block=block, block_tx_index_dict=block_tx_index_dict)
+            self.parse_tx(tx_index_in_block=tx_idx, json_data=tx_json, block=block)
 
         return block
 
@@ -788,6 +856,9 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
             #     session.commit()
 
     def populate_block(self, session: Session, block_height: int, populate_addresses=True, block_json=None):
+
+        block_start_time = time.perf_counter()
+
         if block_json is None:
             block_json = self.data_provider.get_block_json(height=block_height)
 
@@ -809,8 +880,6 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
             highest_tx is not None and highest_output is not None
             and self.current_tx_id >= 0 and self.current_output_id >= 0)
 
-        # self.unique_id_manager.parse_block_json(block_json, block_height)
-        # self.unique_id_manager.save()
         # Populate block data using data provider
         block = self.parse_block(session, height=block_height, json_data=block_json)
 
@@ -820,16 +889,20 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
         # Save block to database
         session.add(block)
         session.commit()
+        self.population_stats.block_population_time += time.perf_counter() - block_start_time
+        self.population_stats.total_blocks += 1
 
     def populate_blocks(self,
                         session: Session,
                         block_heights: list[int],
                         show_progressbar=False,
                         fail_if_exists=False):
+
+        self.population_stats = self.PopulationStatistics()
+        self.population_stats.start_timer()
+
         block_heights = list(block_heights)
         block_heights.sort()
-
-        self.block_json: dict[int, object] = {}
 
         # get the highest block height that already exists in the database
         highest_block = session.query(Block).order_by(Block.height.desc()).first()
@@ -850,13 +923,23 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
         buffer_size = 20
         ranges = chunked_indices(block_heights, buffer_size)
 
-        for start, end in ranges:
-            block_json = self.data_provider.get_blocks_json(block_heights[start:end])
+        try:
+            for start, end in ranges:
+                api_time = time.perf_counter()
+                block_json = self.data_provider.get_blocks_json(block_heights[start:end])
 
-            for block_height in block_heights[start:end]:
-                self.populate_block(session, block_height, block_json=block_json[block_height])
-                if show_progressbar:
-                    block_heights_progressbar.update(1)
+                self.population_stats.api_request_time += (time.perf_counter() - api_time)
+                self.population_stats.total_api_requests += (end - start)
 
-        if show_progressbar:
-            block_heights_progressbar.close()
+                for block_height in block_heights[start:end]:
+                    self.populate_block(session, block_height, block_json=block_json[block_height])
+                    if show_progressbar:
+                        block_heights_progressbar.update(1)
+
+        finally:
+            self.population_stats.stop_timer()
+            self.population_stats.calculate_averages()
+            print(self.population_stats)
+
+            if show_progressbar:
+                block_heights_progressbar.close()

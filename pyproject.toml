@@ -2,3 +2,7 @@
 pythonpath = [
   "src"
 ]
+
+testpaths = [
+  "tests"
+]
