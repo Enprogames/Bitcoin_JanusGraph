@@ -34,7 +34,7 @@ class PopulateOutputProportionGraph:
     def clear_graph(self, batch_size: int = 100_000):
         # Not all vertices can be deleted at once, so we delete them in batches.
         try:
-            while g.V().limt(1).count().next() > 0:
+            while g.V().limit(1).count().next() > 0:
                 g.V().limit(batch_size).drop().iterate()
         except GremlinServerError:
             print("Gremlin server error. Consider descreasing batch size or increasing evaluationTimeout")
@@ -65,8 +65,7 @@ class PopulateOutputProportionGraph:
         block_heights: list[int],
         show_progressbar=False,
         fail_if_exists=False,
-        start_height: int = 0,
-        batch_size: int = 10
+        start_height: int = 0
     ):
 
         block_heights = list(block_heights)
@@ -98,9 +97,6 @@ class PopulateOutputProportionGraph:
                               .count()
             progressbar = tqdm(total=tx_count, desc="Populating graph", unit="tx")
 
-        current_batch_count = 0
-        batch_traversal = g
-
         tx: Tx
         for tx in self.data_provider.get_txs_for_blocks(
             session,
@@ -115,42 +111,16 @@ class PopulateOutputProportionGraph:
 
                 # Create a new output node if it doesn't exist.
                 output_node = __.addV('output') \
-                                .property('id', output.id)
+                                .property('output_id', output.id)
                 if output.address is not None:
-                    output_node = output_node.property('address', output.address.id)
+                    output_node = output_node.property('address_id', output.address.id)
 
-                batch_traversal = batch_traversal.V().has('output', 'id', output.id) \
+                g.V().has('output', 'output_id', output.id) \
                     .fold() \
                     .coalesce(
                         __.unfold(),
                         output_node
-                )
-
-                # Create a new address node if it doesn't exist.
-                # Note: Some outputs don't have addresses, but are still spendable.
-                #       We still want to create a node for them.
-                # if output.address is not None:
-                    
-                    
-                    
-                    # batch_traversal = batch_traversal.V().has('address', 'id', output.address.id) \
-                    #     .fold() \
-                    #     .coalesce(
-                    #         __.unfold(),
-                    #         __.addV('address')
-                    #         .property('id', output.address.id)
-                    # )
-
-                    # # Connect the address node to the output node.
-                    # # If the edge already exists, do nothing.
-                    # batch_traversal = g.V().has('address', 'id', output.address.id) \
-                    #     .inE('has_address').where(__.outV().has('output', 'id', output.id)) \
-                    #     .fold() \
-                    #     .coalesce(__.unfold(),
-                    #               __.V().has('address', 'id', output.address.id)
-                    #                     .addE('has_address')
-                    #                     .from_(__.V().has('output', 'id', output.id))
-                    #     )
+                ).next()
 
                 input: Input
                 for input in tx.inputs:
@@ -159,15 +129,15 @@ class PopulateOutputProportionGraph:
                     # Connect the input node to the output node.
                     # If the edge already exists, do nothing.
                     try:
-                        batch_traversal = batch_traversal.V().has('output', 'id', input.prev_out.id) \
-                            .inE('sent').where(__.outV().has('output', 'id', output.id)) \
-                            .fold() \
-                            .coalesce(__.unfold(),
-                                      __.V().has('output', 'id', output.id)
-                                      .addE('sent')
-                                      .from_(__.V().has('output', 'id', input.prev_out.id))
-                                      .property('value', haircut_value)
-                            )
+                        g.V().has('output', 'output_id', input.prev_out.id) \
+                             .inE('sent').where(__.outV().has('output', 'output_id', output.id)) \
+                             .fold() \
+                             .coalesce(__.unfold(),
+                                       __.V().has('output', 'output_id', output.id)
+                                       .addE('sent')
+                                       .from_(__.V().has('output', 'output_id', input.prev_out.id))
+                                       .property('value', haircut_value)
+                             ).next()
                     except GremlinServerError as e:
                         print(f"Error adding edge from {input.prev_out} to {output}")
                         print(f"tx: {tx.id}")
@@ -178,23 +148,6 @@ class PopulateOutputProportionGraph:
 
             if show_progressbar:
                 progressbar.update(1)
-
-            current_batch_count += 1
-
-            if current_batch_count == batch_size:
-                retry_count = 10
-                while retry_count > 0:
-                    try:
-                        batch_traversal.iterate()
-                        break
-                    except RuntimeError as e:
-                        print(e)
-                        print("Gremlin server error. Trying again in 5 seconds...")
-                        retry_count -= 1
-                        time.sleep(5)
-                batch_traversal.iterate()
-                current_batch_count = 0
-                batch_traversal = g
 
         if show_progressbar:
             progressbar.close()
@@ -250,9 +203,9 @@ class PopulateOutputProportionGraph:
         ):
             if output.id not in output_ids:
                 continue
-            batch_traversal = batch_traversal.addV('output').property('id', output.id)
+            batch_traversal = batch_traversal.addV('output').property('output_id', output.id)
             if output.address is not None:
-                batch_traversal = batch_traversal.property('address', output.address.id)
+                batch_traversal = batch_traversal.property('address_id', output.address.id)
 
             current_chunk_count += 1
 
@@ -265,91 +218,6 @@ class PopulateOutputProportionGraph:
 
         if show_progressbar:
             progressbar.close()
-
-    # def create_address_nodes(self, session, highest_to_populate: int = None, show_progressbar: bool = False, batch_size: int = 10):
-
-    #     if highest_to_populate is None:
-    #         highest_to_populate = self.get_highest_block_height(session)
-
-    #     highest_id = self.get_highest_id('address')
-
-    #     highest_address_id = session.query(Address.id)\
-    #                                 .join(Output, Address.outputs)\
-    #                                 .join(Tx, Output.transaction)\
-    #                                 .filter(Tx.block_height <= highest_to_populate)\
-    #                                 .order_by(Address.id.desc()).first()
-
-    #     highest_address_id = highest_address_id[0]
-        
-    #     if not highest_id:
-    #         highest_id = -1
-
-    #     address_ids = range(highest_id+1, highest_address_id + 1)
-    #     if show_progressbar:
-    #         from tqdm import tqdm
-    #         progressbar = tqdm(address_ids, desc="Creating address nodes", unit="address")
-
-
-    #     # Batch creation of address nodes
-    #     for start, end in chunked_indices(address_ids, batch_size):
-    #         batch_traversal = g
-    #         for address_id in address_ids[start:end]:
-    #             batch_traversal = batch_traversal.addV('address').property('id', address_id)
-
-    #         batch_traversal.iterate()
-    #         if show_progressbar:
-    #             progressbar.update(batch_size)
-
-    #     if show_progressbar:
-    #         progressbar.close()
-
-    # def create_has_address_edges(self, session, highest_to_populate: int = None, show_progressbar: bool = False, buffer_size: int = 10):
-
-    #     if highest_to_populate is None:
-    #         highest_to_populate = self.get_highest_block_height(session)
-
-    #     if show_progressbar:
-    #         # count number of outputs between 0 and highest_to_populate
-    #         output_count = session.query(Output.id)\
-    #                               .join(Tx, Output.transaction)\
-    #                               .filter(Tx.block_height <= highest_to_populate)\
-    #                               .count()
-
-    #         from tqdm import tqdm
-    #         progressbar = tqdm(range(0, output_count + 1))
-
-    #     current_batch_count = 0
-
-    #     for output in self.data_provider.get_outputs_for_blocks(
-    #         session,
-    #         min_height=0,
-    #         max_height=highest_to_populate,
-    #         buffer=20_000
-    #     ):
-    #         if current_batch_count == buffer_size or current_batch_count == 0:
-    #             current_batch_count = 0
-    #             batch_traversal = g
-
-    #         # Connect the address node to the output node.
-    #         # If the edge already exists, do nothing.
-    #         if output.address is not None:
-    #             batch_traversal = g.V().has('address', 'id', output.address.id) \
-    #                 .inE('has_address').where(__.outV().has('output', 'id', output.id)) \
-    #                 .fold() \
-    #                 .coalesce(__.unfold(),
-    #                           __.V().has('address', 'id', output.address.id)
-    #                           .addE('has_address')
-    #                           .from_(__.V().has('output', 'id', output.id))
-    #                 )
-    #             current_batch_count += 1
-    #         if current_batch_count == buffer_size:
-    #             batch_traversal.iterate()
-
-    #         if show_progressbar:
-    #             progressbar.update(1)
-
-    #     if show_progressbar:
-    #         progressbar.close()
 
     def create_haircut_edges(
         self,
@@ -387,15 +255,15 @@ class PopulateOutputProportionGraph:
 
                         haircut_value = haircut(input.prev_out.value, tx_sum, output.value)
 
-                        batch_traversal = batch_traversal.V().has('id', input.prev_out.id) \
-                                                            .inE('sent').where(__.outV().has('id', output.id)) \
-                                                            .fold() \
-                                                            .coalesce(__.unfold(),
-                                                                    __.V().has('id', output.id)
-                                                                    .addE('sent')
-                                                                    .from_(__.V().has('id', input.prev_out.id))
-                                                                    .property('value', haircut_value)
-                                                            )
+                        batch_traversal = batch_traversal.V().has('output_id', input.prev_out.id) \
+                                                             .inE('sent').where(__.outV().has('output_id', output.id)) \
+                                                             .fold() \
+                                                             .coalesce(__.unfold(),
+                                                                       __.V().has('output_id', output.id)
+                                                                         .addE('sent')
+                                                                         .from_(__.V().has('output_id', input.prev_out.id))
+                                                                         .property('value', haircut_value)
+                                                             )
 
                         current_batch_count += 1
                         if current_batch_count == batch_size:

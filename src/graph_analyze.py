@@ -30,9 +30,9 @@ class GraphAnalyzer:
 
         # Start the traversal at the specified vertex or vertices
         if vertex_type == 'output':
-            vertex_traversal = self.g.V().has('id', vertex_id)
+            vertex_traversal = self.g.V().has('output_id', vertex_id)
         elif vertex_type == 'address':
-            vertex_traversal = self.g.V().has('address', vertex_id)
+            vertex_traversal = self.g.V().has('address_id', vertex_id)
 
         # Collect history by traversing sent edges backwards
         history = vertex_traversal.repeat(
@@ -53,6 +53,9 @@ class GraphAnalyzer:
         """
         with self.sqlalchemy_session_factory() as session:
             address = session.query(Address).filter_by(addr=address_str).first()
+
+        if not address:
+            raise ValueError(f"address {address_str} not found")
 
         return self.get_vertex_history(address.id, 'address')
 
@@ -82,7 +85,18 @@ class GraphAnalyzer:
         for item in results:
             vertex_properties = item['vertex']
 
-            nx_graph.add_node(vertex_properties[T.id], output_id=vertex_properties['id'], label=vertex_properties[T.label])
+            nx_graph.add_node(
+                vertex_properties[T.id],
+                output_id=vertex_properties['output_id'],
+                label=vertex_properties[T.label]
+            )
+
+            if 'address' in vertex_properties:
+                address_id = vertex_properties['address_id']
+            else:
+                address_id = None
+
+            nx_graph.nodes[vertex_properties[T.id]].update({'address_id': address_id})
 
             for edge in item['edges']:
                 in_node = edge[Direction.IN]
@@ -92,7 +106,33 @@ class GraphAnalyzer:
                     nx_graph.edges[out_node[T.id], in_node[T.id]].update({'value': edge['value']})
 
         if include_data:
-            pass
+            print(nx_graph.nodes.data())
+            output_ids = [data['output_id'] for id_, data in nx_graph.nodes.data()]
+            with self.sqlalchemy_session_factory() as session:
+                outputs = session.query(Output).filter(Output.id.in_(output_ids)).all()
+            
+            for output in outputs:
+                print(output)
             # TODO: Query database to add all data to graph vertices
 
         return nx_graph
+
+
+if __name__ == '__main__':
+    # Create a graph analyzer
+    analyzer = GraphAnalyzer(g, SessionLocal)
+
+    interesting_addr = '1BBz9Z15YpELQ4QP5sEKb1SwxkcmPb5TMs'
+
+    with SessionLocal() as session:
+        address = session.query(Address).filter_by(addr=interesting_addr).first()
+
+    if not address:
+        print(f"address {interesting_addr} not found")
+        exit(1)
+
+    print(f"id of address {address.addr:4}: {address.id}")
+
+    # Get the history of a given address
+    my_hist = analyzer.get_address_history(interesting_addr)
+    graph = analyzer.traversal_to_networkx(my_hist, include_data=True)
