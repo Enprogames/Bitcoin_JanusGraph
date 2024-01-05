@@ -41,6 +41,31 @@ class GraphAnalyzer:
         ).emit()
 
         return history
+    
+    def get_vertex_path(self, vertex_id: int, vertex_type: str):
+        """
+        Retrieve the paths going forward from a given output or address.
+
+        Args:
+            vertex_id: The ID of the vertex (output or address) to start the traversal.
+            vertex_type: The type of ID being provided ('output' or 'address').
+=
+        Returns:
+            Gremlin traversal of the paths of the specified vertex.
+        """
+        assert vertex_type in ['output', 'address'], "vertex_type must be 'output' or 'address'"
+
+        # Start the traversal at the specified vertex or vertices
+        if vertex_type == 'output':
+            vertex_traversal = self.g.V().has('output_id', vertex_id)
+        elif vertex_type == 'address':
+            vertex_traversal = self.g.V().has('address_id', vertex_id)
+
+        history = vertex_traversal.repeat(
+            __.outE('sent').otherV()
+        ).emit()
+
+        return history
 
     def get_address_history(self, address_str: str):
         """
@@ -231,6 +256,15 @@ class GraphAnalyzer:
                     'label': output_dict[output_id].pretty_label()
                 }
         return sources_record
+    
+    def get_coin_destinations(
+        self,
+        vertex_id: int,
+        vertex_type: str,
+        graph: nx.DiGraph,
+        pretty_labels: bool = False
+    ):
+        pass
 
 
 if __name__ == '__main__':
