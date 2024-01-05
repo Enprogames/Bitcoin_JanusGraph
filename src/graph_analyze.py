@@ -26,7 +26,7 @@ class GraphAnalyzer:
         Returns:
             Gremlin traversal of the history of the specified vertex.
         """
-        assert vertex_id in ['output', 'address'], "vertex_id must be 'output' or 'address'"
+        assert vertex_type in ['output', 'address'], "vertex_type must be 'output' or 'address'"
 
         # Start the traversal at the specified vertex or vertices
         if vertex_type == 'output':
@@ -82,7 +82,7 @@ class GraphAnalyzer:
         for item in results:
             vertex_properties = item['vertex']
 
-            nx_graph.add_node(vertex_properties[T.id], btc_id=vertex_properties['id'], label=vertex_properties[T.label])
+            nx_graph.add_node(vertex_properties[T.id], output_id=vertex_properties['id'], label=vertex_properties[T.label])
 
             for edge in item['edges']:
                 in_node = edge[Direction.IN]

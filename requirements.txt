@@ -4,7 +4,9 @@ async-timeout
 gremlinpython>=3.5.8,<3.6
 # 3.6.0, 3.7.0, and 3.7.1 do not work!
 # gremlinpython>=3.7.1
+ipycytoscape
 ipykernel
+nest_asyncio
 networkx
 numpy
 psycopg2-binary
