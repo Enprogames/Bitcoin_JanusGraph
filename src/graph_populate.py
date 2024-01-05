@@ -47,10 +47,10 @@ class PopulateOutputProportionGraph:
         else:
             return -1
 
-    def get_highest_id(self, vertex_type: str) -> int:
+    def get_highest_vertex_id(self) -> int:
         start = time.perf_counter()
-        highest_id = g.V().hasLabel(vertex_type).values('id').max().toList()
-        print(f"Got highest \"{vertex_type}\" in {time.perf_counter() - start} seconds")
+        highest_id = g.V().values('id').max().toList()
+        print(f"Got highest ID vertex in {time.perf_counter() - start} seconds")
 
         assert len(highest_id) < 2, "more than one highest id returned"
 
@@ -214,7 +214,7 @@ class PopulateOutputProportionGraph:
         if highest_to_populate is None:
             highest_to_populate = self.get_highest_block_height(session)
 
-        highest_id = self.get_highest_id('output')
+        highest_id = self.get_highest_vertex_id()
 
         if highest_id < 0:
             highest_populated_block = 0
@@ -244,10 +244,12 @@ class PopulateOutputProportionGraph:
         current_chunk_count = 0
         for output in self.data_provider.get_outputs_for_blocks(
             session,
-            min_height=highest_populated_block - 1,
+            min_height=highest_populated_block,
             max_height=highest_to_populate,
             buffer=20_000
         ):
+            if output.id not in output_ids:
+                continue
             batch_traversal = batch_traversal.addV('output').property('id', output.id)
             if output.address is not None:
                 batch_traversal = batch_traversal.property('address', output.address.id)
@@ -349,7 +351,13 @@ class PopulateOutputProportionGraph:
     #     if show_progressbar:
     #         progressbar.close()
 
-    def create_haircut_edges(self, session, highest_to_populate: int = None, show_progressbar: bool = False, batch_size: int = 10):
+    def create_haircut_edges(
+        self,
+        session,
+        highest_to_populate: int = None,
+        show_progressbar: bool = False,
+        batch_size: int = 10
+    ):
 
         if highest_to_populate is None:
             highest_to_populate = self.get_highest_block_height(session)
@@ -361,7 +369,7 @@ class PopulateOutputProportionGraph:
                               .filter(Block.height <= highest_to_populate)\
                               .count()
             from tqdm import tqdm
-            progressbar = tqdm(range(0, tx_count + 1))
+            progressbar = tqdm(range(0, tx_count + 1), desc="Creating haircut edges", unit="tx")
 
         current_batch_count = 0
         for tx in self.data_provider.get_txs_for_blocks(
@@ -372,8 +380,6 @@ class PopulateOutputProportionGraph:
         ):
             tx_sum = tx.total_input_value()
             for output in tx.outputs:
-                if not output.valid:
-                    continue
 
                 for input in tx.inputs:
                     if current_batch_count == batch_size or current_batch_count == 0:
@@ -381,14 +387,14 @@ class PopulateOutputProportionGraph:
                         batch_traversal = g
 
                     haircut_value = haircut(input.prev_out.value, tx_sum, output.value)
-                                                     
-                    batch_traversal = batch_traversal.V().has('output', 'id', input.prev_out.id) \
-                                                         .inE('sent').where(__.outV().has('output', 'id', output.id)) \
+
+                    batch_traversal = batch_traversal.V().has('id', input.prev_out.id) \
+                                                         .inE('sent').where(__.outV().has('id', output.id)) \
                                                          .fold() \
                                                          .coalesce(__.unfold(),
-                                                                   __.V().has('output', 'id', output.id)
+                                                                   __.V().has('id', output.id)
                                                                    .addE('sent')
-                                                                   .from_(__.V().has('output', 'id', input.prev_out.id))
+                                                                   .from_(__.V().has('id', input.prev_out.id))
                                                                    .property('value', haircut_value)
                                                          )
 
@@ -407,7 +413,7 @@ class PopulateOutputProportionGraph:
         session: Session,
         block_heights: list[int] = None,
         show_progressbar=False,
-        batch_size: int = 100
+        batch_size: int = 20
     ):
 
         if block_heights is None:
