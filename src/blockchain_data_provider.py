@@ -577,7 +577,8 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
             .options(
                 joinedload(Block.transactions)
                 .joinedload(Tx.inputs)
-                .joinedload(Input.prev_out),
+                .joinedload(Input.prev_out)
+                .joinedload(Output.address),
                 joinedload(Block.transactions)
                 .joinedload(Tx.outputs)
                 .joinedload(Output.address)
@@ -592,7 +593,8 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
     def get_tx(self, session: Session, tx_id: int = None, tx_hash: str = None) -> Tx:
         options = (
             joinedload(Tx.inputs)
-            .joinedload(Input.prev_out),
+            .joinedload(Input.prev_out)
+            .joinedload(Output.address),
             joinedload(Tx.outputs)
             .joinedload(Output.address)
         )

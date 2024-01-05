@@ -372,38 +372,45 @@ class PopulateOutputProportionGraph:
             progressbar = tqdm(range(0, tx_count + 1), desc="Creating haircut edges", unit="tx")
 
         current_batch_count = 0
+        batch_traversal = g
         for tx in self.data_provider.get_txs_for_blocks(
             session,
             min_height=0,
             max_height=highest_to_populate,
             buffer=20_000
         ):
-            tx_sum = tx.total_input_value()
-            for output in tx.outputs:
+            try:
+                tx_sum = tx.total_input_value()
+                for output in tx.outputs:
 
-                for input in tx.inputs:
-                    if current_batch_count == batch_size or current_batch_count == 0:
-                        current_batch_count = 0
-                        batch_traversal = g
+                    for input in tx.inputs:
 
-                    haircut_value = haircut(input.prev_out.value, tx_sum, output.value)
+                        haircut_value = haircut(input.prev_out.value, tx_sum, output.value)
 
-                    batch_traversal = batch_traversal.V().has('id', input.prev_out.id) \
-                                                         .inE('sent').where(__.outV().has('id', output.id)) \
-                                                         .fold() \
-                                                         .coalesce(__.unfold(),
-                                                                   __.V().has('id', output.id)
-                                                                   .addE('sent')
-                                                                   .from_(__.V().has('id', input.prev_out.id))
-                                                                   .property('value', haircut_value)
-                                                         )
+                        batch_traversal = batch_traversal.V().has('id', input.prev_out.id) \
+                                                            .inE('sent').where(__.outV().has('id', output.id)) \
+                                                            .fold() \
+                                                            .coalesce(__.unfold(),
+                                                                    __.V().has('id', output.id)
+                                                                    .addE('sent')
+                                                                    .from_(__.V().has('id', input.prev_out.id))
+                                                                    .property('value', haircut_value)
+                                                            )
 
-                    current_batch_count += 1
-                    if current_batch_count == batch_size:
-                        batch_traversal.iterate()
+                        current_batch_count += 1
+                        if current_batch_count == batch_size:
+                            batch_traversal.iterate()
+                            current_batch_count = 0
+                            batch_traversal = g
 
-            if show_progressbar:
-                progressbar.update(1)
+                if show_progressbar:
+                    progressbar.update(1)
+
+            except Exception as e:
+                print(f"Error adding edge from {input.prev_out} to {output}")
+                print(f"tx: {tx.id}")
+                print(f"block: {tx.block_height}")
+                raise e
 
         if show_progressbar:
             progressbar.close()
@@ -413,7 +420,7 @@ class PopulateOutputProportionGraph:
         session: Session,
         block_heights: list[int] = None,
         show_progressbar=False,
-        batch_size: int = 20
+        batch_size: int = 5
     ):
 
         if block_heights is None:

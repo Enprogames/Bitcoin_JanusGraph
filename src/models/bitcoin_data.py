@@ -72,6 +72,15 @@ class Tx(models.base.Base):
 
         return sum(input.prev_out.value for input in self.inputs if input.prev_out is not None)
 
+    def pretty_print(self):
+        print(f"Tx(id={self.id}, hash={self.hash}, index={self.index})")
+        print("Inputs:")
+        for input in self.inputs:
+            print(f"\t{input.index_in_tx}: {input.prev_out.address.addr[:4]} ({input.prev_out.value / BITCOIN_TO_SATOSHI})")
+        print("Outputs:")
+        for output in self.outputs:
+            print(f"\t{output.index_in_tx}: {output.address.addr[:4]} ({output.value / BITCOIN_TO_SATOSHI})")
+
     def __repr__(self):
         return f"<Tx(hash={self.hash}, index={self.index})>"
 
