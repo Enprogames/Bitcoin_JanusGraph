@@ -39,7 +39,8 @@ def visualize_graph(G, layout: str = 'cola', edge_style_lambda=None):
             'selector': 'node',
             'style': {
                 'background-color': 'data(color)',
-                'label': 'data(id)'
+                # 'label': 'data(id)'
+                'label': 'data(pretty_label)'
             },
         },
         {
@@ -50,6 +51,7 @@ def visualize_graph(G, layout: str = 'cola', edge_style_lambda=None):
                 "target-arrow-color": "data(target_arrow_color)",
                 "line-color": "data(line_color)",
                 "line-style": "data(line_style)",
+                "label": "data(pretty_label)",
                 # "target_arrow_shape": 'triangle',
                 # "target_arrow_color": "#9dbaea",
                 # "curve-style": "bezier",

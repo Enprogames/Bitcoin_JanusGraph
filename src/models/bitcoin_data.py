@@ -120,9 +120,15 @@ class Output(models.base.Base):
     __table_args__ = (
         Index('idx_output_tx_index_in_tx', 'tx_id', 'index_in_tx'),
     )
+    
+    def pretty_label(self):
+        location = f"{self.transaction.block_height}:{self.transaction.index_in_block}:{self.index_in_tx}"
+        value_str = f"{self.value / BITCOIN_TO_SATOSHI}"
+        addr_str = self.address.addr[:4]
+        return f"{location} {addr_str} ({value_str})"
 
     def __repr__(self):
-        return f"<Output(value={self.id})>"
+        return f"<Output(id={self.id})>"
 
     def __str__(self):
         return f"<Output(id={self.id})>"
