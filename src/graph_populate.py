@@ -249,6 +249,11 @@ class PopulateOutputProportionGraph:
         ):
             try:
                 tx_sum = tx.total_input_value()
+                # Some transactions send 0 BTC.
+                # This is very strange, but since no value is sent,
+                # no edges should be created.
+                if tx_sum == 0:
+                    continue
                 for output in tx.outputs:
 
                     for input in tx.inputs:
@@ -302,12 +307,8 @@ class PopulateOutputProportionGraph:
 
         # First, create all vertices
         self.create_output_nodes(session, highest_to_populate, show_progressbar, batch_size)
-        # self.create_address_nodes(session, highest_to_populate, show_progressbar, batch_size)
 
-        # create all has_address edges
-        # self.create_has_address_edges(session, highest_to_populate, show_progressbar, batch_size)
-
-        # Then, create all sent edges
+        # Then, create all "sent" edges
         self.create_haircut_edges(session, highest_to_populate, show_progressbar, batch_size)
 
         print("Done.")
