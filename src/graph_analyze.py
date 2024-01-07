@@ -41,7 +41,7 @@ class GraphAnalyzer:
         ).emit()
 
         return history
-    
+
     def get_vertex_path(self, vertex_id: int, vertex_type: str):
         """
         Retrieve the paths going forward from a given output or address.
@@ -49,7 +49,7 @@ class GraphAnalyzer:
         Args:
             vertex_id: The ID of the vertex (output or address) to start the traversal.
             vertex_type: The type of ID being provided ('output' or 'address').
-=
+
         Returns:
             Gremlin traversal of the paths of the specified vertex.
         """
@@ -225,7 +225,10 @@ class GraphAnalyzer:
             if vertex_type == 'output' and 'output_id' in data and data['output_id'] == vertex_id:
                 vertices.append(node)
                 total_contribution += graph.nodes[node]['value']
-            elif vertex_type == 'address' and 'address_id' in data and data['address_id'] == vertex_id:
+            elif (vertex_type == 'address'
+                  and 'address_id' in data
+                  and data['address_id'] == vertex_id
+                  and len(graph.out_edges(node)) == 0):  # only consider unspent outputs
                 vertices.append(node)
                 total_contribution += graph.nodes[node]['value']
 
@@ -256,7 +259,7 @@ class GraphAnalyzer:
                     'label': output_dict[output_id].pretty_label()
                 }
         return sources_record
-    
+
     def get_coin_destinations(
         self,
         vertex_id: int,
