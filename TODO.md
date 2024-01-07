@@ -12,6 +12,7 @@
 ## Graph Database Population
 - [x] Create `PopulateOutputProportionGraph` class to populate graph database.
 - [x] Implement tracing algorithm for graph database.
+- [ ] Implement "address" tracing algorithm which respects outputs that have been spent.
 - [ ] Create some simple unit tests to validate the integrity of a few key data items in the populated database.
     - [ ] Ensuring duplicate transactions are marked as such.
     - [ ] Retrieving previous outputs from inputs.
