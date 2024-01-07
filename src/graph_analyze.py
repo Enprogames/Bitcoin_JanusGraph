@@ -1,8 +1,6 @@
 import networkx as nx
 from sqlalchemy.orm import joinedload
-from gremlin_python import statics
 from gremlin_python.process.traversal import T, Direction
-from gremlin_python.process.anonymous_traversal import traversal
 from gremlin_python.process.graph_traversal import __
 from gremlin_python.process.graph_traversal import GraphTraversalSource
 
@@ -187,36 +185,42 @@ class GraphAnalyzer:
 
         return nx_graph
 
-    def get_coin_sources(
+    def get_coin_traces(
         self,
         vertex_id: int,
         vertex_type: str,
+        direction: str,
         graph: nx.DiGraph,
         pretty_labels: bool = False
     ):
 
         assert vertex_type in ['output', 'address'], "vertex_type must be 'output' or 'address'"
+        assert direction in ['incoming', 'outgoing'], "direction must be 'incoming' or 'outgoing'"
 
         sources_record = {}
 
         def traverse_sources(vertex, fraction=1.0):
             # Traverse incoming edges
-            for sender in graph.successors(vertex):
-                amount_from_sender = graph.edges[vertex, sender]['value']
-                sender_output_id = graph.nodes[sender]['output_id']
+            for child in graph.successors(vertex):
+                child_transfer = graph.edges[vertex, child]['value']
+                child_output_id = graph.nodes[child]['output_id']
 
-                # Add record for this sender
-                if sender_output_id in sources_record:
-                    sources_record[sender_output_id] += amount_from_sender * fraction
+                # Add record for this child
+                if child_output_id in sources_record:
+                    sources_record[child_output_id] += child_transfer * fraction
                 else:
-                    sources_record[sender_output_id] = amount_from_sender * fraction
+                    sources_record[child_output_id] = child_transfer * fraction
+
+                # if traversing forwards, subtract the child transfer from the parent
+                if direction == 'outgoing':
+                    sources_record[vertex] -= child_transfer * fraction
                 # Recursive case
-                predecessors = graph.successors(sender)
-                if predecessors:
-                    sender_total_received = sum([graph[sender][pred]['value'] for pred in predecessors])
-                    if sender_total_received > 0:
-                        amount_fraction = (amount_from_sender / sender_total_received) * fraction
-                        traverse_sources(sender, amount_fraction)
+                grandchildren = graph.successors(child)
+                if grandchildren:
+                    transfer_total = sum([graph[child][grandchild]['value'] for grandchild in grandchildren])
+                    if transfer_total > 0:
+                        amount_fraction = (child_transfer / transfer_total) * fraction
+                        traverse_sources(child, amount_fraction)
 
         # find vertices with given id
         vertices = []
@@ -225,22 +229,27 @@ class GraphAnalyzer:
             if vertex_type == 'output' and 'output_id' in data and data['output_id'] == vertex_id:
                 vertices.append(node)
                 total_contribution += graph.nodes[node]['value']
-            elif (vertex_type == 'address'
-                  and 'address_id' in data
-                  and data['address_id'] == vertex_id
-                  and len(graph.out_edges(node)) == 0):  # only consider unspent outputs
+            elif (
+                vertex_type == 'address'
+                and 'address_id' in data
+                and data['address_id'] == vertex_id
+                and (len(graph.out_edges(node)) == 0 or direction == 'outgoing')
+            ):
+                # only consider unspent outputs if tracing backwards for an address
                 vertices.append(node)
                 total_contribution += graph.nodes[node]['value']
 
         assert vertices, f"No vertices of type '{vertex_type}' with id {vertex_id} found"
         # Start traversal
-        graph = graph.reverse()
+        if direction == 'incoming':
+            graph = graph.reverse()
         try:
             for vertex in vertices:
                 if graph.nodes[vertex]['value'] > 0:
                     traverse_sources(vertex, fraction=graph.nodes[vertex]['value'] / total_contribution)
         finally:
-            graph = graph.reverse()
+            if direction == 'incoming':
+                graph = graph.reverse()
 
         if pretty_labels:
             with self.sqlalchemy_session_factory() as session:
@@ -259,15 +268,6 @@ class GraphAnalyzer:
                     'label': output_dict[output_id].pretty_label()
                 }
         return sources_record
-
-    def get_coin_destinations(
-        self,
-        vertex_id: int,
-        vertex_type: str,
-        graph: nx.DiGraph,
-        pretty_labels: bool = False
-    ):
-        pass
 
 
 if __name__ == '__main__':
