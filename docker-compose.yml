@@ -41,6 +41,7 @@ services:
     build:
       context: ./janusgraph/
     container_name: btc_janus
+    shm_size: 2g
     ports:
       - "${JANUSGRAPH_PORT:-8182}:${JANUSGRAPH_PORT:-8182}"
       - "8484:8184"
@@ -60,7 +61,7 @@ services:
       # janusgraph.storage.hostname: btc_cass
       # JANUS_PROPS_TEMPLATE: cql
       janusgraph.tx.log-tx: true
-      janusgraph.tx.max-commit-time: 10000000000
+      janusgraph.tx.max-commit-time: 100000000000
       # janusgraph.graph.set-vertex-id: true
       # janusgraph.graph.allow-custom-vid-types: true
       # janusgraph.index.default.backend: lucene
@@ -112,3 +113,6 @@ services:
 
 networks:
   btc-network:
+
+# JanusGraph Failure Recovery:
+# JanusGraphFactory.startTransactionRecovery(graph, java.time.Instant.now().minusSeconds(24 * 60 * 60));

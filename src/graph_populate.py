@@ -156,6 +156,7 @@ class PopulateOutputProportionGraph:
         self,
         session,
         highest_to_populate: int = None,
+        lowest_to_populate: int = None,
         show_progressbar: bool = False,
         batch_size: int = 10
     ):
@@ -169,15 +170,16 @@ class PopulateOutputProportionGraph:
 
         highest_id = self.get_highest_vertex_id()
 
-        if highest_id < 0:
-            highest_populated_block = 0
-        else:
-            highest_populated_block = session.query(Block.height)\
-                .join(Tx, Block.transactions)\
-                .join(Output, Tx.outputs)\
-                .filter(Output.id == highest_id)\
-                .order_by(Block.height.desc())\
-                .first().height
+        if lowest_to_populate is None:
+            if highest_id < 0:
+                lowest_to_populate = 0
+            else:
+                lowest_to_populate = session.query(Block.height)\
+                    .join(Tx, Block.transactions)\
+                    .join(Output, Tx.outputs)\
+                    .filter(Output.id == highest_id)\
+                    .order_by(Block.height.desc())\
+                    .first().height
 
         # Get all output ids
         highest_output_id = session.query(Output.id)\
@@ -197,7 +199,7 @@ class PopulateOutputProportionGraph:
         current_chunk_count = 0
         for output in self.data_provider.get_outputs_for_blocks(
             session,
-            min_height=highest_populated_block,
+            min_height=lowest_to_populate,
             max_height=highest_to_populate,
             buffer=20_000
         ):
@@ -223,18 +225,20 @@ class PopulateOutputProportionGraph:
         self,
         session,
         highest_to_populate: int = None,
+        lowest_to_populate: int = None,
         show_progressbar: bool = False,
         batch_size: int = 10
     ):
 
         if highest_to_populate is None:
             highest_to_populate = self.get_highest_block_height(session)
+        if lowest_to_populate is None:
+            lowest_to_populate = 0
 
         if show_progressbar:
             # count number of transactions between 0 and highest_to_populate
             tx_count = session.query(Tx.id)\
-                              .join(Block, Tx.block)\
-                              .filter(Block.height <= highest_to_populate)\
+                              .filter(Tx.block_height <= highest_to_populate, Tx.block_height >= lowest_to_populate)\
                               .count()
             from tqdm import tqdm
             progressbar = tqdm(range(0, tx_count + 1), desc="Creating haircut edges", unit="tx")
@@ -243,7 +247,7 @@ class PopulateOutputProportionGraph:
         batch_traversal = g
         for tx in self.data_provider.get_txs_for_blocks(
             session,
-            min_height=0,
+            min_height=lowest_to_populate,
             max_height=highest_to_populate,
             buffer=20_000
         ):
@@ -272,7 +276,13 @@ class PopulateOutputProportionGraph:
 
                         current_batch_count += 1
                         if current_batch_count == batch_size:
-                            batch_traversal.iterate()
+                            try:
+                                batch_traversal.iterate()
+                            except Exception as e:
+                                print(f"Error adding edge from {input.prev_out} to {output}")
+                                print(f"tx: {tx.id}")
+                                print(f"block: {tx.block_height}")
+                                raise e
                             current_batch_count = 0
                             batch_traversal = g
 
@@ -293,23 +303,30 @@ class PopulateOutputProportionGraph:
         session: Session,
         block_heights: list[int] = None,
         show_progressbar=False,
-        batch_size: int = 5
+        batch_size: int = 5,
+        skip_vertices: bool = False,
+        max_height: int = None,
+        start_height: int = 0
     ):
 
         if block_heights is None:
-            block_heights = range(0, self.get_highest_block_height(session) + 1)
+            if max_height is None:
+                max_height = self.get_highest_block_height(session) + 1
+            block_heights = list(range(start_height, max_height))
 
         else:
             block_heights = list(block_heights)
             block_heights.sort()
 
+        lowest_to_populate = block_heights[0]
         highest_to_populate = block_heights[-1]
 
         # First, create all vertices
-        self.create_output_nodes(session, highest_to_populate, show_progressbar, batch_size)
+        if not skip_vertices:
+            self.create_output_nodes(session, highest_to_populate, lowest_to_populate, show_progressbar, batch_size)
 
         # Then, create all "sent" edges
-        self.create_haircut_edges(session, highest_to_populate, show_progressbar, batch_size)
+        self.create_haircut_edges(session, highest_to_populate, lowest_to_populate, show_progressbar, batch_size)
 
         print("Done.")
 
@@ -327,8 +344,11 @@ if __name__ == '__main__':
 
     parser.add_argument('--batch', default=False, action='store_true',
                         help='Batch populate graph.')
+    parser.add_argument('--skip-vertices', default=False, action='store_true',
+                        help='Skip creating vertices during batch population. Only create edges.')
 
-    parser.add_argument('--start_height', default=0, type=int, help='Block height to start populating from')
+    parser.add_argument('--start-height', default=0, type=int, dest='start_height',
+                        help='Block height to start populating from')
 
     args = parser.parse_args()
 
@@ -357,8 +377,13 @@ if __name__ == '__main__':
             else:
                 if args.batch:
                     print("Batch populating graph...")
-                    populator.populate_batch(session, range(0, highest_block.height + 1), show_progressbar=True)
+                    populator.populate_batch(session,
+                                             show_progressbar=True, skip_vertices=args.skip_vertices,
+                                             max_height=args.height,
+                                             start_height=args.start_height)
                 else:
+                    if args.skip_vertices:
+                        raise ValueError("This argument cannot be used without --batch")
                     populator.populate_outputs_onebyone_getorcreate(
                         session,
                         range(0, highest_block.height + 1),

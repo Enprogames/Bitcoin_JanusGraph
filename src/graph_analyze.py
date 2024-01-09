@@ -40,13 +40,14 @@ class GraphAnalyzer:
 
         return history
 
-    def get_vertex_path(self, vertex_id: int, vertex_type: str):
+    def get_vertex_path(self, vertex_id: int, vertex_type: str, depth: int = None):
         """
         Retrieve the paths going forward from a given output or address.
 
         Args:
             vertex_id: The ID of the vertex (output or address) to start the traversal.
             vertex_type: The type of ID being provided ('output' or 'address').
+            depth: The maximum depth of traversal (optional).
 
         Returns:
             Gremlin traversal of the paths of the specified vertex.
@@ -58,10 +59,16 @@ class GraphAnalyzer:
             vertex_traversal = self.g.V().has('output_id', vertex_id)
         elif vertex_type == 'address':
             vertex_traversal = self.g.V().has('address_id', vertex_id)
-
-        history = vertex_traversal.repeat(
-            __.outE('sent').otherV()
-        ).emit()
+        
+        if depth is not None:
+            assert isinstance(depth, int) and depth > 0, "depth must be a positive integer"
+            history = vertex_traversal.repeat(
+                __.outE('sent').otherV()
+            ).times(depth).emit()
+        else:
+            history = vertex_traversal.repeat(
+                __.outE('sent').otherV()
+            ).emit()
 
         return history
 
@@ -191,8 +198,11 @@ class GraphAnalyzer:
         vertex_type: str,
         direction: str,
         graph: nx.DiGraph,
+        leaves_only: bool = False,
         pretty_labels: bool = False
     ):
+        
+        #TODO: support leaves_only flag
 
         assert vertex_type in ['output', 'address'], "vertex_type must be 'output' or 'address'"
         assert direction in ['incoming', 'outgoing'], "direction must be 'incoming' or 'outgoing'"
@@ -211,9 +221,6 @@ class GraphAnalyzer:
                 else:
                     sources_record[child_output_id] = child_transfer * fraction
 
-                # if traversing forwards, subtract the child transfer from the parent
-                if direction == 'outgoing':
-                    sources_record[vertex] -= child_transfer * fraction
                 # Recursive case
                 grandchildren = graph.successors(child)
                 if grandchildren:
