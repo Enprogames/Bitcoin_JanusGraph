@@ -1,6 +1,6 @@
 import networkx as nx
 from sqlalchemy.orm import joinedload
-from gremlin_python.process.traversal import T, Direction
+from gremlin_python.process.traversal import T, Direction, Order
 from gremlin_python.process.graph_traversal import __
 from gremlin_python.process.graph_traversal import GraphTraversalSource
 
@@ -13,6 +13,25 @@ class GraphAnalyzer:
     def __init__(self, g: GraphTraversalSource, sqlalchemy_session_factory: SessionLocal):
         self.g = g
         self.sqlalchemy_session_factory = sqlalchemy_session_factory
+
+    def highest_degree_centralities(self, centrality_type: str, n: int = 10):
+        assert centrality_type in ['in', 'out', 'both'], "centrality_type must be 'in', 'out', or 'both'"
+
+        if centrality_type == 'in':
+            degree_count_step = __.inE().count()
+        elif centrality_type == 'out':
+            degree_count_step = __.inE().count()
+        else:
+            degree_count_step = __.bothE().count()
+        
+        results = g.V() \
+                   .project("v", "degree") \
+                   .by(__.elementMap()) \
+                   .by(degree_count_step) \
+                   .order().by(__.select("degree"), Order.desc) \
+                   .limit(n).toList()
+
+        return results
 
     def get_vertex_history(self, vertex_id: int, vertex_type: str):
         """
@@ -59,7 +78,7 @@ class GraphAnalyzer:
             vertex_traversal = self.g.V().has('output_id', vertex_id)
         elif vertex_type == 'address':
             vertex_traversal = self.g.V().has('address_id', vertex_id)
-        
+
         if depth is not None:
             assert isinstance(depth, int) and depth > 0, "depth must be a positive integer"
             history = vertex_traversal.repeat(
@@ -68,6 +87,38 @@ class GraphAnalyzer:
         else:
             history = vertex_traversal.repeat(
                 __.outE('sent').otherV()
+            ).emit()
+
+        return history
+    
+    def get_vertex_subgraph(self, vertex_id: int, vertex_type: str, depth: int = None):
+        """
+        Retrieve the paths going forwards and backwards from a given output or address.
+
+        Args:
+            vertex_id: The ID of the vertex (output or address) to start the traversal.
+            vertex_type: The type of ID being provided ('output' or 'address').
+            depth: The maximum depth of traversal (optional).
+
+        Returns:
+            Gremlin traversal of the paths of the specified vertex.
+        """
+        assert vertex_type in ['output', 'address'], "vertex_type must be 'output' or 'address'"
+
+        # Start the traversal at the specified vertex or vertices
+        if vertex_type == 'output':
+            vertex_traversal = self.g.V().has('output_id', vertex_id)
+        elif vertex_type == 'address':
+            vertex_traversal = self.g.V().has('address_id', vertex_id)
+
+        if depth is not None:
+            assert isinstance(depth, int) and depth > 0, "depth must be a positive integer"
+            history = vertex_traversal.repeat(
+                __.bothE('sent').otherV()
+            ).times(depth).emit()
+        else:
+            history = vertex_traversal.repeat(
+                __.bothE('sent').otherV()
             ).emit()
 
         return history
@@ -201,7 +252,7 @@ class GraphAnalyzer:
         leaves_only: bool = False,
         pretty_labels: bool = False
     ):
-        
+
         #TODO: support leaves_only flag
 
         assert vertex_type in ['output', 'address'], "vertex_type must be 'output' or 'address'"
@@ -295,3 +346,8 @@ if __name__ == '__main__':
     # Get the history of a given address
     my_hist = analyzer.get_address_history(interesting_addr)
     graph = analyzer.traversal_to_networkx(my_hist, include_data=True)
+    
+    degree_centralities = analyzer.highest_degree_centralities('both', 10)
+
+    for item in degree_centralities:
+        print(f"{item['v']}: {item['degree']}")

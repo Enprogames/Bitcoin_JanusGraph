@@ -13,6 +13,9 @@ from models.bitcoin_data import (
     Input,
     Address
 )
+
+from models.tracing_data import ManualProportion
+
 from blockchain_data_provider import BlockchainDataProviderADT, chunked_indices, chunked_ranges
 
 from graph.base import g
@@ -58,6 +61,38 @@ class PopulateOutputProportionGraph:
             return highest_id[0]
         else:
             return -1
+
+    def apply_manual_edge_proportions(
+        self,
+        session: Session,
+        show_progressbar=False
+    ):
+
+        if show_progressbar:
+            from tqdm import tqdm
+            progressbar = tqdm(desc="Applying manual edge proportions", unit="edge")
+
+        manual_proportions = session.query(ManualProportion).all()
+
+        #TODO: Properly update edges
+        affected_txs = []
+        for manual_proportion in manual_proportions:
+            tx = session.query(Tx).get(manual_proportion.input_id)
+            affected_txs.append(tx)
+            tx_sum = tx.total_input_value()
+            value_transfer = manual_proportion.proportion * tx_sum
+            g.V().has('output', 'output_id', manual_proportion.input_id) \
+                 .inE('sent').where(__.outV().has('output', 'output_id', manual_proportion.output_id)) \
+                 .property('value', value_transfer).iterate()
+
+            if show_progressbar:
+                progressbar.update(1)
+
+        #TODO: Update affected txs, upserting new edges
+        # if they haven't been created in the previous step
+
+        if show_progressbar:
+            progressbar.close()
 
     def populate_outputs_onebyone_getorcreate(
         self,
@@ -245,55 +280,51 @@ class PopulateOutputProportionGraph:
 
         current_batch_count = 0
         batch_traversal = g
+        tx: Tx
         for tx in self.data_provider.get_txs_for_blocks(
             session,
             min_height=lowest_to_populate,
             max_height=highest_to_populate,
             buffer=20_000
         ):
-            try:
-                tx_sum = tx.total_input_value()
-                # Some transactions send 0 BTC.
-                # This is very strange, but since no value is sent,
-                # no edges should be created.
-                if tx_sum == 0:
-                    continue
-                for output in tx.outputs:
-
-                    for input in tx.inputs:
-
-                        haircut_value = haircut(input.prev_out.value, tx_sum, output.value)
-
-                        batch_traversal = batch_traversal.V().has('output_id', input.prev_out.id) \
-                                                             .inE('sent').where(__.outV().has('output_id', output.id)) \
-                                                             .fold() \
-                                                             .coalesce(__.unfold(),
-                                                                       __.V().has('output_id', output.id)
-                                                                         .addE('sent')
-                                                                         .from_(__.V().has('output_id', input.prev_out.id))
-                                                                         .property('value', haircut_value)
-                                                             )
-
-                        current_batch_count += 1
-                        if current_batch_count == batch_size:
-                            try:
-                                batch_traversal.iterate()
-                            except Exception as e:
-                                print(f"Error adding edge from {input.prev_out} to {output}")
-                                print(f"tx: {tx.id}")
-                                print(f"block: {tx.block_height}")
-                                raise e
-                            current_batch_count = 0
-                            batch_traversal = g
-
+            tx_sum = tx.total_input_value()
+            # Some transactions send 0 BTC.
+            # This is very strange, but since no value is sent,
+            # no edges should be created.
+            if tx_sum == 0:
                 if show_progressbar:
                     progressbar.update(1)
+                continue
+            for output in tx.outputs:
 
-            except Exception as e:
-                print(f"Error adding edge from {input.prev_out} to {output}")
-                print(f"tx: {tx.id}")
-                print(f"block: {tx.block_height}")
-                raise e
+                for input in tx.inputs:
+
+                    haircut_value = haircut(input.prev_out.value, tx_sum, output.value)
+
+                    batch_traversal = batch_traversal.V().has('output_id', input.prev_out.id) \
+                                                            .inE('sent').where(__.outV().has('output_id', output.id)) \
+                                                            .fold() \
+                                                            .coalesce(__.unfold(),
+                                                                    __.V().has('output_id', output.id)
+                                                                        .addE('sent')
+                                                                        .from_(__.V().has('output_id', input.prev_out.id))
+                                                                        .property('value', haircut_value)
+                                                            )
+
+                    current_batch_count += 1
+                    if current_batch_count == batch_size:
+                        try:
+                            batch_traversal.iterate()
+                        except Exception as e:
+                            print(f"Error adding edge from {input.prev_out} to {output}")
+                            print(f"tx: {tx.id}")
+                            print(f"block: {tx.block_height}")
+                            raise e
+                        current_batch_count = 0
+                        batch_traversal = g
+
+            if show_progressbar:
+                progressbar.update(1)
 
         if show_progressbar:
             progressbar.close()
