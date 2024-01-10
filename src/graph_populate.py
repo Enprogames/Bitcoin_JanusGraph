@@ -100,7 +100,8 @@ class PopulateOutputProportionGraph:
         block_heights: list[int],
         show_progressbar=False,
         fail_if_exists=False,
-        start_height: int = 0
+        start_height: int = 0,
+        skip_check_highest: bool = False
     ):
 
         block_heights = list(block_heights)
@@ -108,11 +109,12 @@ class PopulateOutputProportionGraph:
 
         highest_to_populate = block_heights[-1]
 
-        highest_id = g.V().hasLabel('output').values('id').max().toList()
+        if not skip_check_highest:
+            highest_id = self.get_highest_vertex_id()
+        else:
+            highest_id = -1
 
-        assert len(highest_id) < 2, "more than one highest id returned"
-
-        if highest_id:
+        if highest_id > 0:
             highest_id = highest_id[0]
             highest_block = session.query(Block.height)\
                 .join(Tx, Block.transactions)\
@@ -193,7 +195,8 @@ class PopulateOutputProportionGraph:
         highest_to_populate: int = None,
         lowest_to_populate: int = None,
         show_progressbar: bool = False,
-        batch_size: int = 10
+        batch_size: int = 10,
+        skip_check_highest: bool = False
     ):
         # TODO: Currently, this function uses all RAM and is automatically killed.
         #       This is because JanusGraph doesn't deal well with inserting
@@ -203,7 +206,10 @@ class PopulateOutputProportionGraph:
         if highest_to_populate is None:
             highest_to_populate = self.get_highest_block_height(session)
 
-        highest_id = self.get_highest_vertex_id()
+        if not skip_check_highest:
+            highest_id = self.get_highest_vertex_id()
+        else:
+            highest_id = -1
 
         if lowest_to_populate is None:
             if highest_id < 0:
@@ -380,6 +386,13 @@ if __name__ == '__main__':
 
     parser.add_argument('--start-height', default=0, type=int, dest='start_height',
                         help='Block height to start populating from')
+    # Why is this check unbearably long?
+    # See https://stackoverflow.com/questions/70697793/faster-janusgraph-queries
+    # And also https://stackoverflow.com/questions/62480262/gremlin-haslabel-query-times-out
+    parser.add_argument('--skip-check-highest', default=False, action='store_true',
+                        dest='skip_check_highest',
+                        help='Skip checking highest output node id in database. Sometimes'
+                        'This check can be unbearably long ')
 
     args = parser.parse_args()
 
@@ -411,7 +424,8 @@ if __name__ == '__main__':
                     populator.populate_batch(session,
                                              show_progressbar=True, skip_vertices=args.skip_vertices,
                                              max_height=args.height,
-                                             start_height=args.start_height)
+                                             start_height=args.start_height,
+                                             skip_check_highest=args.skip_check_highest)
                 else:
                     if args.skip_vertices:
                         raise ValueError("This argument cannot be used without --batch")
@@ -419,5 +433,6 @@ if __name__ == '__main__':
                         session,
                         range(0, highest_block.height + 1),
                         show_progressbar=True,
-                        start_height=args.start_height
+                        start_height=args.start_height,
+                        skip_check_highest=args.skip_check_highest
                     )

@@ -1,3 +1,4 @@
+import time
 import networkx as nx
 from sqlalchemy.orm import joinedload
 from gremlin_python.process.traversal import T, Direction, Order
@@ -24,12 +25,16 @@ class GraphAnalyzer:
         else:
             degree_count_step = __.bothE().count()
         
+        start = time.perf_counter()
+
         results = g.V() \
                    .project("v", "degree") \
                    .by(__.elementMap()) \
                    .by(degree_count_step) \
                    .order().by(__.select("degree"), Order.desc) \
                    .limit(n).toList()
+        
+        print(f"Query took {time.perf_counter() - start} seconds")
 
         return results
 
@@ -346,8 +351,18 @@ if __name__ == '__main__':
     # Get the history of a given address
     my_hist = analyzer.get_address_history(interesting_addr)
     graph = analyzer.traversal_to_networkx(my_hist, include_data=True)
-    
-    degree_centralities = analyzer.highest_degree_centralities('both', 10)
 
+    print("Highest degree centralities, in-edges and out-edges:")
+    degree_centralities = analyzer.highest_degree_centralities('both', 10)
+    for item in degree_centralities:
+        print(f"{item['v']}: {item['degree']}")
+
+    print("Highest degree centralities, in-edges only:")
+    degree_centralities = analyzer.highest_degree_centralities('in', 10)
+    for item in degree_centralities:
+        print(f"{item['v']}: {item['degree']}")
+
+    print("Highest degree centralities, out-edges only:")
+    degree_centralities = analyzer.highest_degree_centralities('out', 10)
     for item in degree_centralities:
         print(f"{item['v']}: {item['degree']}")
