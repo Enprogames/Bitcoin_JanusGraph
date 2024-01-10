@@ -246,9 +246,20 @@ class PopulateOutputProportionGraph:
         ):
             if output.id not in output_ids:
                 continue
-            batch_traversal = batch_traversal.addV('output').property('output_id', output.id)
+
+            # Create a new output node if it doesn't exist.
+            output_node = __.addV('output') \
+                            .property('output_id', output.id)
             if output.address is not None:
-                batch_traversal = batch_traversal.property('address_id', output.address.id)
+                output_node = output_node.property('address_id', output.address.id)
+
+            batch_traversal = batch_traversal.V() \
+                .has('output', 'output_id', output.id) \
+                .fold() \
+                .coalesce(
+                    __.unfold(),
+                    output_node
+                )
 
             current_chunk_count += 1
 
@@ -343,7 +354,8 @@ class PopulateOutputProportionGraph:
         batch_size: int = 5,
         skip_vertices: bool = False,
         max_height: int = None,
-        start_height: int = 0
+        start_height: int = 0,
+        skip_check_highest: bool = False
     ):
 
         if block_heights is None:
@@ -360,7 +372,12 @@ class PopulateOutputProportionGraph:
 
         # First, create all vertices
         if not skip_vertices:
-            self.create_output_nodes(session, highest_to_populate, lowest_to_populate, show_progressbar, batch_size)
+            self.create_output_nodes(session,
+                                     highest_to_populate,
+                                     lowest_to_populate,
+                                     show_progressbar,
+                                     batch_size,
+                                     skip_check_highest=skip_check_highest)
 
         # Then, create all "sent" edges
         self.create_haircut_edges(session, highest_to_populate, lowest_to_populate, show_progressbar, batch_size)
