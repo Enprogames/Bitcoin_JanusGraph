@@ -30,27 +30,40 @@ assert GRAPH_DB_HOST is not None and GREMLIN_SEVER_PORT is not None and GRAPH_DB
     "GRAPH_DB_HOST, GREMLIN_DB_USER, GREMLIN_DB_PASSWORD, and GREMLIN_SEVER_PORT must be set in .env file"
 gremlin_version = tuple([int(x) for x in version('gremlinpython').split('.')])
 if (gremlin_version < (3, 5, 0)):
-    graph = Graph()
-    g: GraphTraversalSource = graph.traversal().withRemote(
-        DriverRemoteConnection(GRAPH_DB_URL, 'g',
-                               username=GRAPH_DB_USER,
-                               password=GRAPH_DB_PASSWORD))
-elif (gremlin_version < (3, 6, 0)):
-    from gremlin_python.process.anonymous_traversal import traversal
-    g: GraphTraversalSource = traversal().withRemote(
-        DriverRemoteConnection(GRAPH_DB_URL, 'g',
-                               username=GRAPH_DB_USER,
-                               password=GRAPH_DB_PASSWORD))
+    def create_gremlin_connection() -> GraphTraversalSource:
+        graph = Graph()
+        g = graph.traversal().withRemote(
+            DriverRemoteConnection(GRAPH_DB_URL, 'g',
+                                   username=GRAPH_DB_USER,
+                                   password=GRAPH_DB_PASSWORD))
+        g = g.with_('evaluationTimeout', 3600000000)
+        g = g.withStrategies(*[TraversalStrategy(
+            'OptionsStrategy', {'evaluationTimeout': 3600000000},
+            'org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.OptionsStrategy'
+        )])
+        
+        return g
 
-else:  # gremlin_version >= (3, 6, 0) e.g. 3.6.10 or 3.7.1
+# elif (gremlin_version < (3, 6, 0)):
+else: # gremlin_version >= (3, 6, 0) e.g. 3.6.10 or 3.7.1
     from gremlin_python.process.anonymous_traversal import traversal
-    g: GraphTraversalSource = traversal().with_remote(
-        DriverRemoteConnection(GRAPH_DB_URL, 'g',
-                               username=GRAPH_DB_USER,
-                               password=GRAPH_DB_PASSWORD))
+    def create_gremlin_connection() -> GraphTraversalSource:
+        g = traversal().withRemote(
+            DriverRemoteConnection(GRAPH_DB_URL, 'g',
+                                   username=GRAPH_DB_USER,
+                                   password=GRAPH_DB_PASSWORD))
 
-g = g.with_('evaluationTimeout', 3600000000)
-g = g.withStrategies(*[TraversalStrategy(
-    'OptionsStrategy', {'evaluationTimeout': 3600000000},
-    'org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.OptionsStrategy'
-)])
+        g = g.with_('evaluationTimeout', 3600000000)
+        g = g.withStrategies(*[TraversalStrategy(
+            'OptionsStrategy', {'evaluationTimeout': 3600000000},
+            'org.apache.tinkerpop.gremlin.process.traversal.strategy.decoration.OptionsStrategy'
+        )])
+
+        return g
+
+
+def reset_gremlin_connection():
+    global g
+    g = create_gremlin_connection()
+
+g = create_gremlin_connection()
