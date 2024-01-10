@@ -62,8 +62,9 @@ else: # gremlin_version >= (3, 6, 0) e.g. 3.6.10 or 3.7.1
         return g
 
 
-def reset_gremlin_connection():
-    global g
-    g = create_gremlin_connection()
+def reset_gremlin_connection(g: GraphTraversalSource):
+    g.remote_connection = DriverRemoteConnection(GRAPH_DB_URL, 'g',
+                                   username=GRAPH_DB_USER,
+                                   password=GRAPH_DB_PASSWORD)
 
 g = create_gremlin_connection()
