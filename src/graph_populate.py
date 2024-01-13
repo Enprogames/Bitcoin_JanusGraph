@@ -159,6 +159,8 @@ class PopulateOutputProportionGraph:
                         output_node
                 ).next()
 
+                if tx_sum == 0:
+                    continue
                 input: Input
                 for input in tx.inputs:
                     haircut_value = haircut(input.prev_out.value, tx_sum, output.value)
