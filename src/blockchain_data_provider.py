@@ -6,6 +6,7 @@ import copy
 import traceback
 from typing import Dict
 from pathlib import Path
+from datetime import datetime
 
 import requests
 import traceback
@@ -825,6 +826,7 @@ class PersistentBlockchainAPIData(BlockchainDataProviderADT):
 
         block = Block()
         block.height = json_data['height']
+        block.timestamp = datetime.fromtimestamp(json_data['time'])
         block.transactions = []
 
         # Fetch IDs for previous outputs not in the current block

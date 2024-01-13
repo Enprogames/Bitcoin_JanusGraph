@@ -14,23 +14,25 @@
 - [x] Implement tracing algorithm for graph database.
 - [ ] Implement "address" tracing algorithm which respects outputs that have been spent.
 - [ ] Create some simple unit tests to validate the integrity of a few key data items in the populated database.
-    - [ ] Ensuring duplicate transactions are marked as such.
-    - [ ] Retrieving previous outputs from inputs.
-    - [ ] Retrieving all outputs for an address.
+    - [x] Ensuring duplicate transactions are marked as such.
+    - [x] Retrieving previous outputs from inputs.
+    - [x] Retrieving all outputs for an address.
 - [x] Visualize some interesting data.
     - [x] Find some interesting transactions.
+    - [ ] Can I improve performance of "n-hop" subgraph visualization?
 
 ## Paper
-- [ ] Literature Review
-    - [ ] Address Clustering using Heuristics and Algorithms
-    - [ ] 
-    - [ ] **Algorithms used by Taintchain
-    - [ ] ** Algorithms used by BitIondine
-- [ ] Consistent definition of tracing
+- [x] Literature Review
+    - [x] Address Clustering using Heuristics and Algorithms
+    <!-- - [ ] **Algorithms used by Taintchain
+    - [ ] ** Algorithms used by BitIondine -->
+<!-- - [ ] Consistent definition of tracing
     - [ ] Different definitions by different researchers
-    - [ ] My definition
-- [ ] Data Preparation
-    - [ ] Duplicate Transactions
+    - [ ] My definition -->
+- [x] Data Preparation
+    - [x] Duplicate Transactions
+    - [x] Invalid transactions
+    - [ ] Zero-valued transactions
 
 ## Ideas and Notes
 #### Frequency Distribution of Transactions within Blocks
@@ -98,9 +100,12 @@ Start Height|End Height|Transaction Count|Average Transactions Per Block|
 ```sql
 SELECT 
     t.id,
-    COUNT(DISTINCT i.id) AS input_count,
-    COUNT(DISTINCT o.id) AS output_count,
-    COUNT(DISTINCT i.id) * COUNT(DISTINCT o.id) AS io_product
+    t.block_height as "Block",
+    t.index_in_block as "Tx Index in Block",
+    COUNT(DISTINCT i.id) AS "Input Count",
+    COUNT(DISTINCT o.id) AS "Output Count",
+    COUNT(DISTINCT i.id) * COUNT(DISTINCT o.id) AS "Input Count * Output Count",
+    t.hash as "Tx Hash"
 FROM 
     transactions t
 LEFT JOIN 
@@ -110,24 +115,24 @@ LEFT JOIN
 GROUP BY 
     t.id
 ORDER BY 
-    io_product DESC
+    "Input Count * Output Count" DESC
 LIMIT 10;
 ```
 
 Results:
 ```
-id     |input_count|output_count|io_product|
--------+-----------+------------+----------+
- 951352|        100|         999|     99900|
-1035342|         26|        1512|     39312|
-1441873|        135|         210|     28350|
-5575007|        277|          73|     20221|
-7020591|        431|          41|     17671|
-6987093|         35|         501|     17535|
-1992599|        104|         161|     16744|
-5855968|        153|         101|     15453|
-7186522|        162|          94|     15228|
-6336328|        155|          80|     12400|
+Block |Tx Index in Block|Input Count|Output Count|
+------+-----------------+-----------+------------+
+134863|                1|        100|         999|
+136273|               29|         26|        1512|
+143967|                1|        135|         210|
+192084|               88|        277|          73|
+198445|               77|        431|          41|
+198315|               52|         35|         501|
+156569|                2|        104|         161|
+193466|              115|        153|         101|
+199328|              125|        162|          94|
+195405|              147|        155|          80|
 ```
 
 #### Very Strange Transactions

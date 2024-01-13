@@ -5,6 +5,7 @@ from sqlalchemy import (
     BigInteger,
     String,
     Boolean,
+    DateTime,
     ForeignKey
 )
 from sqlalchemy.orm import relationship
@@ -39,6 +40,7 @@ DUPLICATE_TRANSACTIONS = [
 class Block(models.base.Base):
     __tablename__ = 'blocks'
     height = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, nullable=True)
     transactions = relationship("Tx", back_populates="block",
                                 cascade="all, delete, delete-orphan",
                                 order_by="Tx.index_in_block",
@@ -181,6 +183,8 @@ class Address(models.base.Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     addr = Column(String, index=True)
     outputs = relationship("Output", back_populates="address", passive_deletes=True)
+
+    owners = relationship("AddressOwnerAssociation", back_populates="address")
 
     def __repr__(self):
         return f"<Address(addr={self.addr})>"
