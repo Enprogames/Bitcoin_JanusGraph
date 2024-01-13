@@ -42,43 +42,92 @@ WITH MaxHeight AS (
 HeightRanges AS (
     SELECT
         FLOOR(height / :increment) * :increment AS RangeStart,
-        LEAST(FLOOR(height / :increment) * :increment + :increment - 1, (SELECT max_height FROM MaxHeight)) AS RangeEnd
+        LEAST(FLOOR(height / :increment) * :increment + :increment - 1, (SELECT max_height FROM MaxHeight)) AS RangeEnd,
+        COUNT(*) AS BlockCount -- Counting blocks in each range
     FROM
         blocks
     GROUP BY RangeStart
 )
 SELECT
-    RangeStart,
-    RangeEnd,
-    COUNT(transactions.id) AS TransactionCount
+    RangeStart as "Start Height",
+    RangeEnd as "End Height",
+    COUNT(transactions.id) AS "Transaction Count",
+    CASE 
+        WHEN BlockCount > 0 THEN CAST(COUNT(transactions.id) AS FLOAT) / BlockCount 
+        ELSE 0 
+    END AS "Average Transactions Per Block" -- Calculating average transactions per block
 FROM
     HeightRanges
 LEFT JOIN
     transactions ON transactions.block_height >= HeightRanges.RangeStart AND transactions.block_height <= HeightRanges.RangeEnd
 GROUP BY
-    RangeStart, RangeEnd
+    RangeStart, RangeEnd, BlockCount
 ORDER BY
     RangeStart;
 ```
 
 Some results:
 ```
-rangestart|rangeend|transactioncount|
-----------+--------+----------------+
-       0.0|  9999.0|           10092|
-   10000.0| 19999.0|           10044|
-   20000.0| 29999.0|           10076|
-   30000.0| 39999.0|           10125|
-   40000.0| 49999.0|           10442|
-   50000.0| 59999.0|           15602|
-   60000.0| 69999.0|           23723|
-   70000.0| 79999.0|           25047|
-   80000.0| 89999.0|           24329|
-   90000.0| 99999.0|           77093|
-  100000.0|109999.0|           73081|
-  110000.0|119999.0|          145826|
-  120000.0|129999.0|          255577|
-  130000.0|138146.0|          446362|
+Start Height|End Height|Transaction Count|Average Transactions Per Block|
+------------+----------+-----------------+------------------------------+
+         0.0|   10000.0|            10093|                        1.0093|
+     10000.0|   20000.0|            10045|                        1.0045|
+     20000.0|   30000.0|            10077|                        1.0077|
+     30000.0|   40000.0|            10126|                        1.0126|
+     40000.0|   50000.0|            10443|                        1.0443|
+     50000.0|   60000.0|            15603|                        1.5603|
+     60000.0|   70000.0|            23724|                        2.3724|
+     70000.0|   80000.0|            25049|                        2.5049|
+     80000.0|   90000.0|            24330|                         2.433|
+     90000.0|  100000.0|            77097|                        7.7097|
+    100000.0|  110000.0|            73093|                        7.3093|
+    110000.0|  120000.0|           145882|                       14.5882|
+    120000.0|  130000.0|           255586|                       25.5586|
+    130000.0|  140000.0|           539712|                       53.9712|
+    140000.0|  150000.0|           487765|                       48.7765|
+    150000.0|  160000.0|           400154|                       40.0154|
+    160000.0|  170000.0|           451247|                       45.1247|
+    170000.0|  180000.0|           572250|                        57.225|
+    180000.0|  190000.0|          1999277|                      199.9277|
+    190000.0|  200000.0|          2175779|                      217.5779|
+    200000.0|  200000.0|              388|                         388.0|
+```
+
+### Largest Transactions
+
+```sql
+SELECT 
+    t.id,
+    COUNT(DISTINCT i.id) AS input_count,
+    COUNT(DISTINCT o.id) AS output_count,
+    COUNT(DISTINCT i.id) * COUNT(DISTINCT o.id) AS io_product
+FROM 
+    transactions t
+LEFT JOIN 
+    inputs i ON t.id = i.tx_id
+LEFT JOIN 
+    outputs o ON t.id = o.tx_id
+GROUP BY 
+    t.id
+ORDER BY 
+    io_product DESC
+LIMIT 10;
+```
+
+Results:
+```
+id     |input_count|output_count|io_product|
+-------+-----------+------------+----------+
+ 951352|        100|         999|     99900|
+1035342|         26|        1512|     39312|
+1441873|        135|         210|     28350|
+5575007|        277|          73|     20221|
+7020591|        431|          41|     17671|
+6987093|         35|         501|     17535|
+1992599|        104|         161|     16744|
+5855968|        153|         101|     15453|
+7186522|        162|          94|     15228|
+6336328|        155|          80|     12400|
 ```
 
 #### Very Strange Transactions

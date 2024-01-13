@@ -32,5 +32,5 @@ RUN python3 -m pip install -r requirements.txt
 COPY . /app/
 WORKDIR /app/
 
-RUN adduser --disabled-password appuser
+RUN adduser --disabled-password appuser && chown -R appuser:appuser /app && chmod -R 775 /app
 USER appuser

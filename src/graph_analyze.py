@@ -24,7 +24,7 @@ class GraphAnalyzer:
             degree_count_step = __.inE().count()
         else:
             degree_count_step = __.bothE().count()
-        
+
         start = time.perf_counter()
 
         results = g.V() \
@@ -33,7 +33,7 @@ class GraphAnalyzer:
                    .by(degree_count_step) \
                    .order().by(__.select("degree"), Order.desc) \
                    .limit(n).toList()
-        
+
         print(f"Query took {time.perf_counter() - start} seconds")
 
         return results

@@ -120,7 +120,7 @@ class Output(models.base.Base):
     __table_args__ = (
         Index('idx_output_tx_index_in_tx', 'tx_id', 'index_in_tx'),
     )
-    
+
     def pretty_label(self):
         location = f"{self.transaction.block_height}:{self.transaction.index_in_block}:{self.index_in_tx}"
         value_str = f"{self.value / BITCOIN_TO_SATOSHI}"
