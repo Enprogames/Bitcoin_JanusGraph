@@ -17,7 +17,16 @@ class ManualProportion(models.base.Base):
 
     output_id = Column(BigInteger, ForeignKey("transactions.id", ondelete="CASCADE"))
 
-    proportion = Column(Float)
+    # how much of the total possible amount was sent from one input to one output
+    # the maximum possible is min(input_value, output_value)
+    # by default, the maximum is assumed
+    proportion = Column(Float, default=1.0)
 
     input = relationship("Tx", foreign_keys=[input_id], passive_deletes=True)
     output = relationship("Tx", foreign_keys=[output_id], passive_deletes=True)
+
+
+class Owner(models.base.Base):
+    __tablename__ = 'owners'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)

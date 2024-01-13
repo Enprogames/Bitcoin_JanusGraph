@@ -184,7 +184,7 @@ class Address(models.base.Base):
     addr = Column(String, index=True)
     outputs = relationship("Output", back_populates="address", passive_deletes=True)
 
-    owners = relationship("AddressOwnerAssociation", back_populates="address")
+    # owners = relationship("AddressOwnerAssociation", back_populates="address")
 
     def __repr__(self):
         return f"<Address(addr={self.addr})>"

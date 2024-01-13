@@ -101,14 +101,11 @@ def test_address_order_of_appearance(session: Session):
 def test_get_txs_for_blocks(session: Session):
     tx: Tx
     data_provider = PersistentBlockchainAPIData()
-    
-    # max_height = MAX_HEIGHT
-    max_height = 200_000
 
     for tx in data_provider.get_txs_for_blocks(
         session,
         min_height=0,
-        max_height=max_height,
+        max_height=MAX_HEIGHT,
         buffer=2000
     ):
 
