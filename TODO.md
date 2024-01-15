@@ -20,6 +20,8 @@
 - [x] Visualize some interesting data.
     - [x] Find some interesting transactions.
     - [ ] Can I improve performance of "n-hop" subgraph visualization?
+    - [ ] Account for address owners when visualizing subgraphs.
+    - [ ] Account for address owners when tracing coins.
 
 ## Paper
 - [x] Literature Review

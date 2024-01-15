@@ -1,13 +1,16 @@
 from sqlalchemy import (
     Column,
-    CheckConstraint,
     Integer,
     BigInteger,
     ForeignKey,
-    Float
+    Float,
+    CheckConstraint,
+    UniqueConstraint
 )
-from sqlalchemy.orm import relationship
+
+from sqlalchemy.orm import relationship, joinedload
 import models.base
+from bitcoin_data import Tx, Input, Output
 
 
 class ManualProportion(models.base.Base):
@@ -29,8 +32,24 @@ class ManualProportion(models.base.Base):
     # Check constraint to ensure input and output are in the same transaction
     __table_args__ = (
         CheckConstraint('EXISTS (SELECT 1 FROM transactions t WHERE t.id = input_id AND t.id = output_id)',
-                        name='chk_same_transaction'),
+                        name='_same_transaction_chk'),
+        UniqueConstraint('input_id', 'output_id', name='_input_output_uc'),
     )
+
+    @classmethod
+    def get_affected_txs(cls, session):
+        """Get all transactions that are affected by the manual proportions.
+        """
+        options = joinedload(cls.input)\
+            .joinedload(Tx.inputs)\
+            .joinedload(Input.prev_out)\
+            .joinedload(Output.address)\
+            .joinedload(cls.output)
+
+        return session.query(Tx)\
+                      .options(options)\
+                      .join(cls, Tx.id == cls.output_id)\
+                      .distinct().all()
 
 
 class Owner(models.base.Base):
