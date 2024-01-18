@@ -57,6 +57,6 @@ if __name__ == "__main__":
     wait_for_db()
     print("Initializing database...")
 
-    command.upgrade(alembic_cfg, "head")
+    # command.upgrade(alembic_cfg, "head")
 
     print("Database initialization successful.")

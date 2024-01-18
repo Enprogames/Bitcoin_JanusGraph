@@ -1,5 +1,5 @@
 import time
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from gremlin_python.process.traversal import T
 from gremlin_python.process.graph_traversal import __
 from gremlin_python.driver.protocol import GremlinServerError
@@ -14,7 +14,7 @@ from models.bitcoin_data import (
     Address
 )
 
-from models.tracing_data import ManualProportion
+from models.bitcoin_data import ManualProportion
 
 from blockchain_data_provider import BlockchainDataProviderADT, chunked_indices, chunked_ranges
 
@@ -24,6 +24,7 @@ from graph.base import g
 def haircut(input_value: float, sum_of_inputs: int, output_value: float) -> float:
     """
     Generic haircut function that finds the contribution of a single input to an output.
+    haircut_value = (input_value / sum_of_inputs) * output_value
     """
     return (input_value / sum_of_inputs) * output_value
 
@@ -62,37 +63,136 @@ class PopulateOutputProportionGraph:
         else:
             return -1
 
+    def upsert_haircut_edge(self, prev_out_id: int, output_id: int, haircut_value: float):
+        g.V().has('output_id', prev_out_id) \
+             .inE('sent').where(__.outV().has('output_id', output_id)) \
+             .fold() \
+             .coalesce(__.unfold(),
+                       __.V().has('output', 'output_id', output_id)
+                       .addE('sent')
+                       .from_(__.V().has('output', 'output_id', prev_out_id))
+                       .property('value', haircut_value)
+                       ).next()
+
+    def apply_manual_edge_proportions_for_tx(
+        self,
+        session: Session,
+        tx_id: int
+    ):
+        tx = session.query(Tx).get(tx_id).options(
+            joinedload(Tx.inputs).joinedload(Input.prev_out),
+            joinedload(Tx.outputs)
+        ).first()
+        tx_sum = tx.total_input_value()
+        remaining_tx_value = tx_sum
+
+        # Delete existing edges from this input to outputs within the same transaction
+        for output in tx.outputs:
+            g.V().has('output_id', output.id)\
+                .inE('sent').drop().iterate()
+
+        # retrieve all manual proportions whose output is in this transaction
+        manual_proportions = session.query(ManualProportion)\
+                                    .join(Output, ManualProportion.output)\
+                                    .filter(Output.transaction == tx)\
+                                    .options(
+                                        joinedload(ManualProportion.input).joinedload(Input.prev_out),
+                                        joinedload(ManualProportion.output)
+        ).all()
+
+        # create list of remaining values for each input/output
+        input_values = [manual_proportion.input.prev_out.value for manual_proportion in manual_proportions]
+        output_values = [manual_proportion.output.value for manual_proportion in manual_proportions]
+
+        for manual_proportion in manual_proportions:
+            # the manual value is calculated as a fraction of the total possible amount that can
+            # be sent from the input to the output i.e. the maximum between the input and output values
+            edge_value = manual_proportion.proportion * max(manual_proportion.input.prev_out.value, manual_proportion.output.value)
+            input_values[manual_proportion.input.index_in_tx] -= edge_value
+            output_values[manual_proportion.output.index_in_tx] -= edge_value
+
+            # Subtract the value transfer from the total transaction value for recalculating other edges
+            remaining_tx_value -= edge_value
+
+            # Upsert the edge with the manual proportion
+            self.upsert_haircut_edge(manual_proportion.input.prev_out.id, manual_proportion.output.id, edge_value)
+
+        # Sometimes only part of the output value has been transferred in one edge.
+        # In addition, sometimes only part of the input value has been transferred.
+        # All remaining value is distributed proportionally.
+        # TODO: Need to figure out a way to properly re-distribute remaining coin
+        # without creating edges for the manual proportions again.
+        output: Output
+        for output in tx.outputs:
+            # If the output value is 0, no edges should be created
+            if output_values[output.index_in_tx] == 0:
+                continue
+
+            # Recalculate and upsert other edges based on the remaining transaction value
+            input: Input
+            for input in tx.inputs:
+                # If the input value is 0, no edges should be created
+                if input_values[input.index_in_tx] == 0:
+                    continue
+
+                haircut_value = haircut(input_values[input.index_in_tx], remaining_tx_value, output_values[output.index_in_tx])
+                self.upsert_haircut_edge(input.prev_out.id, output.id, haircut_value)
+
     def apply_manual_edge_proportions(
         self,
         session: Session,
         show_progressbar=False
     ):
-
         if show_progressbar:
             from tqdm import tqdm
-            progressbar = tqdm(desc="Applying manual edge proportions", unit="edge")
+            manual_proportions_count = session.query(ManualProportion).count()
+            progressbar = tqdm(total=manual_proportions_count, desc="Applying manual edge proportions", unit="edge")
 
-        manual_proportions = session.query(ManualProportion).all()
+        affected_tx_ids = session.query(Tx.id)\
+                                 .join(ManualProportion, Tx.id == ManualProportion.output_id)\
+                                 .distinct().all()
 
-        #TODO: Properly update edges
-        affected_txs = []
-        for manual_proportion in manual_proportions:
-            tx = session.query(Tx).get(manual_proportion.input_id)
-            affected_txs.append(tx)
-            tx_sum = tx.total_input_value()
-            value_transfer = manual_proportion.proportion * tx_sum
-            g.V().has('output', 'output_id', manual_proportion.input_id) \
-                 .inE('sent').where(__.outV().has('output', 'output_id', manual_proportion.output_id)) \
-                 .property('value', value_transfer).iterate()
+        for tx in affected_tx_ids:
+            self.apply_manual_edge_proportions_for_tx(session, tx)
 
             if show_progressbar:
                 progressbar.update(1)
 
-        #TODO: Update affected txs, upserting new edges
-        # if they haven't been created in the previous step
-
         if show_progressbar:
             progressbar.close()
+
+    def reset_manual_edge_proportions(
+        self,
+        session: Session,
+        show_progressbar=False
+    ):
+        affected_txs = ManualProportion.get_affected_txs(session)
+
+        if show_progressbar:
+            from tqdm import tqdm
+            tx_count = len(affected_txs)
+            progressbar = tqdm(total=tx_count, desc="Resetting edge proportions", unit="edge")
+
+        for tx in affected_txs:
+            tx_sum = tx.total_input_value()
+            # Delete existing edges from this input to outputs within the same transaction
+            for output in tx.outputs:
+                g.V().has('output_id', output.id)\
+                    .inE('sent').drop().iterate()
+            if tx_sum == 0:
+                progressbar.update(1)
+                continue
+
+            # Recalculate and upsert edges for outputs in this transaction
+            output: Output
+            for output in tx.outputs:
+                input: Input
+                for input in tx.inputs:
+                    haircut_value = haircut(input.prev_out.value, tx_sum, output.value)
+                    self.upsert_haircut_edge(input.prev_out.id, output.id, haircut_value)
+
+            if show_progressbar:
+                progressbar.update(1)
 
     def populate_outputs_onebyone_getorcreate(
         self,

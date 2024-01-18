@@ -5,10 +5,18 @@ from sqlalchemy import (
     BigInteger,
     String,
     Boolean,
+    Float,
     DateTime,
-    ForeignKey
+    Text,
+    ForeignKey,
+    CheckConstraint,
+    UniqueConstraint
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import (
+    relationship,
+    mapped_column,
+    Mapped
+)
 import models.base
 
 
@@ -177,16 +185,24 @@ class Input(models.base.Base):
         return self.id
 
 
+class AddressOwnerAssociation(models.base.Base):
+    __tablename__ = 'address_owner_association'
+    address_id: Mapped[int] = mapped_column(ForeignKey('addresses.id'), primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey('owners.id'), primary_key=True)
+    
+    address: Mapped['Address'] = relationship(back_populates="owners")
+    owner: Mapped['Owner'] = relationship(back_populates="addresses")
+
+
 class Address(models.base.Base):
     __tablename__ = "addresses"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
     addr = Column(String, index=True)
     outputs = relationship("Output", back_populates="address", passive_deletes=True)
 
     # Many-to-many relationship with Owner
-    owners = relationship("Owner", secondary='address_owner_association', back_populates="addresses")
-    address_associations = relationship("AddressOwnerAssociation", cascade="all, delete-orphan", back_populates="address")
+    owners: Mapped[list["AddressOwnerAssociation"]] = relationship(back_populates="address")
 
     def __repr__(self):
         return f"<Address(addr={self.addr})>"
@@ -199,3 +215,50 @@ class Address(models.base.Base):
 
     def __hash__(self):
         return self.id
+
+
+class Owner(models.base.Base):
+    __tablename__ = 'owners'
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    description = Column(Text, nullable=True)
+
+    # Many-to-many relationship with Address
+    addresses: Mapped[list["AddressOwnerAssociation"]] = relationship(back_populates="owner")
+
+
+class ManualProportion(models.base.Base):
+    __tablename__ = 'manual_proportions'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    input_id = Column(BigInteger, ForeignKey("transactions.id", ondelete="CASCADE"))
+
+    output_id = Column(BigInteger, ForeignKey("transactions.id", ondelete="CASCADE"))
+
+    # how much of the total possible amount was sent from one input to one output
+    # the maximum possible is min(input_value, output_value)
+    # by default, the maximum is assumed
+    proportion = Column(Float, default=1.0)
+
+    input = relationship(Tx, foreign_keys=[input_id], passive_deletes=True)
+    output = relationship(Tx, foreign_keys=[output_id], passive_deletes=True)
+
+    # Check constraint to ensure input and output are in the same transaction
+    __table_args__ = (
+        UniqueConstraint('input_id', 'output_id', name='_input_output_uc'),
+    )
+
+    @classmethod
+    def get_affected_txs(cls, session):
+        """Get all transactions that are affected by the manual proportions.
+        """
+        options = joinedload(cls.input)\
+            .joinedload(Tx.inputs)\
+            .joinedload(Input.prev_out)\
+            .joinedload(Output.address)\
+            .joinedload(cls.output)
+
+        return session.query(Tx)\
+                      .options(options)\
+                      .join(cls, Tx.id == cls.output_id)\
+                      .distinct().all()

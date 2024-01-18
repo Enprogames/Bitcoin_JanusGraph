@@ -124,3 +124,17 @@ def test_get_txs_for_blocks(session: Session):
                            or_(Input.prev_out_id.is_(None), Output.id.is_(None)))
                    .first()
         ) is None
+
+
+def test_times(session: Session):
+    """
+    Each block should have a "time" attribute, and each time should be higher than the last
+    """
+    blocks = session.query(Block)\
+                    .filter(Block.height <= MAX_HEIGHT)\
+                    .order_by(Block.height).all()
+    assert len(blocks) > 0
+    last_time = blocks[0].time
+    for block in blocks[1:]:
+        assert block.time > last_time
+        last_time = block.time

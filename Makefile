@@ -43,30 +43,24 @@ stop:
 populate: start populate_blocks populate_graph
 
 populate_blockchain:
-	@echo "Populating blocks up to height $(BLOCK_HEIGHT) and API endpoint $(API_ENDPOINT)..."
 	@$(EXEC_APP) "\
 		python src/blockchain_populate.py\
 		--height $(BLOCK_HEIGHT)\
 		--endpoint $(API_ENDPOINT)"
 
 delete_blockchain:
-	@echo "Deleting blocks..."
 	@$(EXEC_APP) "python src/blockchain_populate.py --delete"
 
 migrate:
-	@echo "Migrating..."
 	@$(EXEC_APP) "alembic revision --autogenerate -m '$(MESSAGE)'"
 
 populate_graph:
-	@echo "Populating graph..."
 	@$(EXEC_APP) "python src/graph_populate.py"
 
 delete_graph:
-	@echo "Deleting graph..."
 	@$(EXEC_APP) "python src/graph_populate.py --delete"
 
 test:
-	@echo "Running tests..."
 	@$(EXEC_APP) "pytest"
 
 clean:

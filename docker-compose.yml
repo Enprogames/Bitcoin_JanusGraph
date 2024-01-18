@@ -57,6 +57,7 @@ services:
       retries: 4
     environment:
       janusgraph.storage.backend: berkeleyje
+      # janusgraph.storage.batch-loading: true
       # janusgraph.storage.backend: cql
       # janusgraph.storage.hostname: btc_cass
       # JANUS_PROPS_TEMPLATE: cql
@@ -65,6 +66,25 @@ services:
       # janusgraph.graph.set-vertex-id: true
       # janusgraph.graph.allow-custom-vid-types: true
       # janusgraph.index.default.backend: lucene
+
+
+  # btc_arcade:
+  #   container_name: btc_arcade
+  #   image: arcadedata/arcadedb:latest
+  #   ports:
+  #     - 2480:2480 # host : container port
+  #     - 2424:2424 # host : container port
+  #     - ${JANUSGRAPH_PORT:-8182}:${JANUSGRAPH_PORT:-8182}
+  #   networks:
+  #     - btc-network
+  #   environment:
+  #     JAVA_OPTS: >
+  #       -Darcadedb.server.rootPassword=playwithdata
+  #       -Darcadedb.dumpConfigAtStartup=true
+  #       -Darcadedb.server.plugins="GremlinServer:com.arcadedb.server.gremlin.GremlinServerPlugin"
+  #   restart: always
+  #   volumes:
+  #     - ${ARCADE_DB_FOLDER:-./data/btc_arcade}:/var/lib/arcadedb/databases
 
   # btc_cass:
   #   container_name: btc_cass
