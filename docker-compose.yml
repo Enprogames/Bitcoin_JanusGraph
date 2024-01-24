@@ -67,6 +67,19 @@ services:
       # janusgraph.graph.allow-custom-vid-types: true
       # janusgraph.index.default.backend: lucene
 
+  # btc_orient:
+  #   container_name: btc_orient
+  #   image: orientdb:latest
+  #   ports:
+  #     - "2424:2424"
+  #     - "2480:2480"
+  #     - "8182:8182"
+  #   networks:
+  #     - btc-network
+  #   volumes:
+  #     - ${ORIENT_DB_FOLDER:-./data/btc_orient}:/orientdb/databases
+  #   environment:
+  #     ORIENTDB_ROOT_PASSWORD: foo
 
   # btc_arcade:
   #   container_name: btc_arcade

@@ -22,9 +22,6 @@ load_dotenv()
 GRAPH_DB_HOST = os.getenv("GRAPH_DB_HOST")
 GRAPH_DB_USER = os.getenv("GRAPH_DB_USER")
 GRAPH_DB_PASSWORD = os.getenv("GRAPH_DB_PASSWORD")
-# LAMMA TODO: remove these
-# GRAPH_DB_USER = 'root'
-# GRAPH_DB_PASSWORD = 'playwithdata'
 GREMLIN_SEVER_PORT = os.getenv("GREMLIN_SEVER_PORT")
 GRAPH_DB_URL = f"ws://{GRAPH_DB_HOST}:{GREMLIN_SEVER_PORT}/gremlin"
 

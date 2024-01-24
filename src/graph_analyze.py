@@ -38,7 +38,7 @@ class GraphAnalyzer:
 
         return results
 
-    def get_vertex_history(self, vertex_id: int, vertex_type: str):
+    def get_vertex_history(self, vertex_id: int, vertex_type: str, depth: int = None):
         """
         Retrieve the entire history of transactions for a given output or address.
 
@@ -58,9 +58,15 @@ class GraphAnalyzer:
             vertex_traversal = self.g.V().has('address_id', vertex_id)
 
         # Collect history by traversing sent edges backwards
-        history = vertex_traversal.repeat(
-            __.inE('sent').otherV()
-        ).emit()
+        if depth is not None:
+            assert isinstance(depth, int) and depth > 0, "depth must be a positive integer"
+            history = vertex_traversal.repeat(
+                __.inE('sent').otherV()
+            ).times(depth).emit()
+        else:
+            history = vertex_traversal.repeat(
+                __.inE('sent').otherV()
+            ).emit()
 
         return history
 

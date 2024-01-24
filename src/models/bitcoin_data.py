@@ -5,17 +5,19 @@ from sqlalchemy import (
     BigInteger,
     String,
     Boolean,
-    Float,
     DateTime,
     Text,
     ForeignKey,
+    UniqueConstraint,
     CheckConstraint,
-    UniqueConstraint
+    select
 )
 from sqlalchemy.orm import (
     relationship,
     mapped_column,
-    Mapped
+    Mapped,
+    joinedload,
+    aliased
 )
 import models.base
 
@@ -110,21 +112,30 @@ class Tx(models.base.Base):
 class Output(models.base.Base):
     __tablename__ = "outputs"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    index_in_tx = Column(Integer)
-    value = Column(BigInteger)
+    id: Mapped['int'] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    index_in_tx: Mapped['int'] = mapped_column(Integer)
+    value: Mapped['int'] = mapped_column(BigInteger)
 
-    tx_id = Column(Integer, ForeignKey("transactions.id", ondelete="CASCADE"))
-    address_id = Column(Integer, ForeignKey("addresses.id", ondelete="CASCADE"), index=True)
+    tx_id: Mapped['int'] = mapped_column(Integer, ForeignKey("transactions.id", ondelete="CASCADE"))
+    address_id: Mapped['int'] = mapped_column(
+        BigInteger,
+        ForeignKey("addresses.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True
+    )
 
     # some outputs are unspendable, and we will not be able to
     # find the address for them
-    valid = Column(Boolean, default=True, index=True)
+    valid: Mapped['bool'] = mapped_column(default=True, index=True)
 
-    transaction = relationship("Tx", back_populates="outputs",
-                               passive_deletes=True)
-    address = relationship("Address", back_populates="outputs",
-                           passive_deletes=True)
+    transaction: Mapped['Tx'] = relationship(
+        back_populates="outputs",
+        passive_deletes=True
+    )
+    address: Mapped['Address'] = relationship(
+        back_populates="outputs",
+        passive_deletes=True
+    )
 
     # Composite index for efficient querying
     __table_args__ = (
@@ -187,9 +198,9 @@ class Input(models.base.Base):
 
 class AddressOwnerAssociation(models.base.Base):
     __tablename__ = 'address_owner_association'
-    address_id: Mapped[int] = mapped_column(ForeignKey('addresses.id'), primary_key=True)
+    address_id: Mapped[int] = mapped_column(BigInteger, ForeignKey('addresses.id'), primary_key=True)
     owner_id: Mapped[int] = mapped_column(ForeignKey('owners.id'), primary_key=True)
-    
+
     address: Mapped['Address'] = relationship(back_populates="owners")
     owner: Mapped['Owner'] = relationship(back_populates="addresses")
 
@@ -197,7 +208,7 @@ class AddressOwnerAssociation(models.base.Base):
 class Address(models.base.Base):
     __tablename__ = "addresses"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     addr = Column(String, index=True)
     outputs = relationship("Output", back_populates="address", passive_deletes=True)
 
@@ -229,36 +240,40 @@ class Owner(models.base.Base):
 
 class ManualProportion(models.base.Base):
     __tablename__ = 'manual_proportions'
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
-    input_id = Column(BigInteger, ForeignKey("transactions.id", ondelete="CASCADE"))
+    input_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("inputs.id", ondelete="CASCADE"))
 
-    output_id = Column(BigInteger, ForeignKey("transactions.id", ondelete="CASCADE"))
+    output_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("outputs.id", ondelete="CASCADE"))
 
     # how much of the total possible amount was sent from one input to one output
-    # the maximum possible is min(input_value, output_value)
-    # by default, the maximum is assumed
-    proportion = Column(Float, default=1.0)
+    # the maximum possible is min(input_value, output_value), which will need
+    # to be upheld in the application logic.
+    # By default, the maximum possible amount is assumed to be sent.
+    proportion: Mapped[float] = mapped_column(default=1.0)
 
-    input = relationship(Tx, foreign_keys=[input_id], passive_deletes=True)
-    output = relationship(Tx, foreign_keys=[output_id], passive_deletes=True)
+    input: Mapped[Input] = relationship(foreign_keys=[input_id], passive_deletes=True)
+    output: Mapped[Output] = relationship(foreign_keys=[output_id], passive_deletes=True)
 
     # Check constraint to ensure input and output are in the same transaction
+    # Also ensure proportion is between 0 and 1
     __table_args__ = (
         UniqueConstraint('input_id', 'output_id', name='_input_output_uc'),
+        CheckConstraint('proportion >= 0 AND proportion <= 1', name='_proportion_cc'),
     )
 
-    @classmethod
-    def get_affected_txs(cls, session):
+    @staticmethod
+    def get_affected_txs(session):
         """Get all transactions that are affected by the manual proportions.
         """
-        options = joinedload(cls.input)\
-            .joinedload(Tx.inputs)\
-            .joinedload(Input.prev_out)\
-            .joinedload(Output.address)\
-            .joinedload(cls.output)
+        options = (
+            joinedload(Tx.inputs)
+            .joinedload(Input.prev_out),
+            joinedload(Tx.outputs)
+        )
 
-        return session.query(Tx)\
-                      .options(options)\
-                      .join(cls, Tx.id == cls.output_id)\
-                      .distinct().all()
+        return session.query(Tx) \
+                      .options(*options) \
+                      .join(Output, Tx.id == Output.tx_id)\
+                      .join(ManualProportion, Output.id == ManualProportion.output_id)\
+                      .all()

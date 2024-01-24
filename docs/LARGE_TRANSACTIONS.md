@@ -1,6 +1,41 @@
 # Large Transactions
 As part of my research, I am investigating very large transactions which consist of several inputs and outputs. I suspect that these might be involved in Bitcoin "laundry" transactions, or simply in exchange transactions where many user's coins are sent as a batch.
 
+Before diving into that, it is also interesting to count the number of transactions that have a more regular number of inputs and outputs. Most commonly, someone will combine several inputs, then send to two outputs: one for the recipient, and one for change since it is very rare that the inputs will exactly match the desired output amount. The following query finds the number of transactions with exactly two outputs:
+
+```sql
+-- Number of non-coinbase transactions with exactly two outputs
+select 'non_coinbase_two_op_count' as category, count(*) as "count"
+from (
+	select distinct tx.id
+	from transactions as tx
+	join outputs op on tx.id=op.tx_id
+	where tx.index_in_block > 0
+	group by tx.id
+	having count(op.id) = 2
+) AS subquery1
+union all
+-- Number of non-coinbase transactions
+select 'non_coinbase_count' as category, count(*) as "count"
+from (
+	select distinct tx.id
+	from transactions as tx
+	join outputs op on tx.id=op.tx_id
+	where tx.index_in_block > 0
+	group by tx.id
+) AS subquery2;
+```
+
+The results are as follows:
+```
+category                 |count  |
+-------------------------+-------+
+non_coinbase_two_op_count|6489730|
+non_coinbase_count       |7116695|
+```
+
+This means that 91% of non-coinbase transactions have exactly two outputs. This is a very strong indicator that the transaction is a normal user transaction. So in this early set of transactions for the first 200,000 blocks, there are 626,965 that do not conform to this pattern.
+
 The following query finds large transactions by multiplying the number of inputs and outputs. This is a very naive approach, but it is a good starting point.
 
 ```sql

@@ -29,6 +29,86 @@ def haircut(input_value: float, sum_of_inputs: int, output_value: float) -> floa
     return (input_value / sum_of_inputs) * output_value
 
 
+def calculate_proportions(input_values, output_values, manual_proportions):
+    """
+    We are using the haircut method to proportionally distribute input values
+    to output values. But sometimes it is also important that manual proportions
+    can be set.
+
+    This function takes in a transaction and a list of manual input-to-output
+    proportions and returns a list of input-to-output values.
+
+    The output format will be an adjacency matrix specifying the values
+    for each input-to-output pair. The input and output indices are the
+    indices of the input_values and output_values lists.
+
+    For example, if we have an input at index 0 with value 5, and an output
+    at index 2 with value 6, and we send 0.5 of the input to the output, then
+    the output of this function will include 2.5 at index (0, 2).
+
+    This process is tricky since we have to force certain input-to-output
+    pairs to have certain proportions, while also maintaining the haircut
+    distributions. For instances, if we send 0.5 of an input to an output,
+    the haircut method will try to force more from that input to the output.
+    So we need to re-distribute the remainder of this input-to-output
+    amount to the other outputs.
+
+    It is easy to check the correctness of the final values. The sum of the
+    final values for each input-to-output pair should equal the sum
+    of the output values. And the values for the manual proportions should
+    be as specified.
+    """
+    result = [[0 for _ in output_values] for _ in input_values]
+    remaining_input_values = input_values.copy()
+    remaining_output_values = output_values.copy()
+
+    # First, we distribute the manual proportions
+    # If any proportion is greater than 1, or causes the input value to
+    # be greater than the output value, then we raise an error
+    for manual_proportion in manual_proportions:
+        o = manual_proportion.output.index_in_tx
+        i = manual_proportion.input.index_in_tx
+        p = manual_proportion.proportion
+        result[i][o] = input_values[i] * p
+        remaining_input_values[i] -= result[i][o]
+        remaining_output_values[o] -= result[i][o]
+        if p > 1:
+            raise ValueError("Manual proportion cannot be greater than 1")
+        if result[i][o] > input_values[i]:
+            raise ValueError("Manual proportion cannot be greater than input value")
+        if result[i][o] > output_values[o]:
+            raise ValueError("Manual proportion cannot be greater than output value")
+
+    # collect together all non-manual edges, and sum their values
+    non_manual_edges = []
+    non_manual_sum = 0
+
+    remaining_values_sum = sum(remaining_input_values)
+    if remaining_values_sum > 0:
+        # Next, distribute the remaining values proportionally. But when we
+        # reach an input-to-output pair that has a manual proportion, we
+        # need to distribute the remaining values to the other outputs.
+        # This is done by first skipping these edges, then calculating the
+        # remaining values and distributing them later.
+        amount_remaining = 0
+        for o, output_value in enumerate(remaining_output_values):
+            for i, input_value in enumerate(remaining_input_values):
+                if result[i][o] > 0:
+                    amount_remaining += output_value * input_value / remaining_values_sum
+                    continue
+                result[i][o] += output_value * input_value / remaining_values_sum
+                non_manual_edges.append((i, o, result[i][o]))
+                non_manual_sum += result[i][o]
+
+        # Finally, distribute the remaining values to the other outputs
+        # Value is attributed based on what proportion each non-manual edge
+        # has of the total non-manual sum
+        for i, o, _ in non_manual_edges:
+            result[i][o] += amount_remaining * (result[i][o] / non_manual_sum)
+
+    return result
+
+
 class PopulateOutputProportionGraph:
 
     def __init__(self,
@@ -79,12 +159,14 @@ class PopulateOutputProportionGraph:
         session: Session,
         tx_id: int
     ):
-        tx = session.query(Tx).get(tx_id).options(
-            joinedload(Tx.inputs).joinedload(Input.prev_out),
-            joinedload(Tx.outputs)
-        ).first()
-        tx_sum = tx.total_input_value()
-        remaining_tx_value = tx_sum
+        tx = session.query(Tx)\
+                    .options(
+                        joinedload(Tx.inputs)
+                        .joinedload(Input.prev_out),
+                        joinedload(Tx.outputs)
+                     )\
+                    .filter_by(id=tx_id)\
+                    .first()
 
         # Delete existing edges from this input to outputs within the same transaction
         for output in tx.outputs:
@@ -94,34 +176,18 @@ class PopulateOutputProportionGraph:
         # retrieve all manual proportions whose output is in this transaction
         manual_proportions = session.query(ManualProportion)\
                                     .join(Output, ManualProportion.output)\
-                                    .filter(Output.transaction == tx)\
+                                    .filter(Output.tx_id == tx.id)\
                                     .options(
                                         joinedload(ManualProportion.input).joinedload(Input.prev_out),
                                         joinedload(ManualProportion.output)
         ).all()
 
         # create list of remaining values for each input/output
-        input_values = [manual_proportion.input.prev_out.value for manual_proportion in manual_proportions]
-        output_values = [manual_proportion.output.value for manual_proportion in manual_proportions]
+        input_values = [input.prev_out.value for input in tx.inputs]
+        output_values = [output.value for output in tx.outputs]
 
-        for manual_proportion in manual_proportions:
-            # the manual value is calculated as a fraction of the total possible amount that can
-            # be sent from the input to the output i.e. the maximum between the input and output values
-            edge_value = manual_proportion.proportion * max(manual_proportion.input.prev_out.value, manual_proportion.output.value)
-            input_values[manual_proportion.input.index_in_tx] -= edge_value
-            output_values[manual_proportion.output.index_in_tx] -= edge_value
+        edge_values = calculate_proportions(input_values, output_values, manual_proportions)
 
-            # Subtract the value transfer from the total transaction value for recalculating other edges
-            remaining_tx_value -= edge_value
-
-            # Upsert the edge with the manual proportion
-            self.upsert_haircut_edge(manual_proportion.input.prev_out.id, manual_proportion.output.id, edge_value)
-
-        # Sometimes only part of the output value has been transferred in one edge.
-        # In addition, sometimes only part of the input value has been transferred.
-        # All remaining value is distributed proportionally.
-        # TODO: Need to figure out a way to properly re-distribute remaining coin
-        # without creating edges for the manual proportions again.
         output: Output
         for output in tx.outputs:
             # If the output value is 0, no edges should be created
@@ -135,8 +201,9 @@ class PopulateOutputProportionGraph:
                 if input_values[input.index_in_tx] == 0:
                     continue
 
-                haircut_value = haircut(input_values[input.index_in_tx], remaining_tx_value, output_values[output.index_in_tx])
-                self.upsert_haircut_edge(input.prev_out.id, output.id, haircut_value)
+                edge_value = edge_values[input.index_in_tx][output.index_in_tx]
+                if edge_value > 0:
+                    self.upsert_haircut_edge(input.prev_out.id, output.id, edge_value)
 
     def apply_manual_edge_proportions(
         self,
@@ -149,11 +216,12 @@ class PopulateOutputProportionGraph:
             progressbar = tqdm(total=manual_proportions_count, desc="Applying manual edge proportions", unit="edge")
 
         affected_tx_ids = session.query(Tx.id)\
-                                 .join(ManualProportion, Tx.id == ManualProportion.output_id)\
+                                 .join(Output, Tx.id == Output.tx_id)\
+                                 .join(ManualProportion, Output.id == ManualProportion.output_id)\
                                  .distinct().all()
 
         for tx in affected_tx_ids:
-            self.apply_manual_edge_proportions_for_tx(session, tx)
+            self.apply_manual_edge_proportions_for_tx(session, tx.id)
 
             if show_progressbar:
                 progressbar.update(1)
