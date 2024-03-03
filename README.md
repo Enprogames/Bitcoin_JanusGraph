@@ -60,6 +60,8 @@ Before you begin, ensure you have installed:
 
 To get started with the project, first clone the repository and navigate into the project directory.
 
+Copy the `.env.example` file to `.env` and modify the environment variables as specified.
+
 ## Using the Makefile
 
 The Makefile includes several commands to manage the Docker containers, networks, and volumes associated with the project.
@@ -95,6 +97,8 @@ make populate_blocks BLOCK_HEIGHT=200
 ```bash
 make populate_graph
 ```
+
+Now that everything is setup, try running the cells in `graph_tests.ipynb` to see the graph database in action.
 
 ### Running Tests
 
@@ -132,6 +136,15 @@ make full_clean
 
 ```bash
 make ps
+```
+
+## Troubleshooting
+
+The Janusgraph container often fails to start for unknown reasons, likely due to a bug in Janusgraph. If this occurs, try completely removing the container, building it, and starting it again:
+
+```bash
+$ docker-compose down btc_janus
+$ docker-compose up --build -d btc_janus
 ```
 
 # Using Janusgraph Console

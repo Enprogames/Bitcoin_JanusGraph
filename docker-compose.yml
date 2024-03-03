@@ -57,92 +57,10 @@ services:
       retries: 4
     environment:
       janusgraph.storage.backend: berkeleyje
-      # janusgraph.storage.batch-loading: true
-      # janusgraph.storage.backend: cql
-      # janusgraph.storage.hostname: btc_cass
-      # JANUS_PROPS_TEMPLATE: cql
       janusgraph.tx.log-tx: true
       janusgraph.tx.max-commit-time: 100000000000
       # janusgraph.graph.set-vertex-id: true
       # janusgraph.graph.allow-custom-vid-types: true
-      # janusgraph.index.default.backend: lucene
-
-  # btc_orient:
-  #   container_name: btc_orient
-  #   image: orientdb:latest
-  #   ports:
-  #     - "2424:2424"
-  #     - "2480:2480"
-  #     - "8182:8182"
-  #   networks:
-  #     - btc-network
-  #   volumes:
-  #     - ${ORIENT_DB_FOLDER:-./data/btc_orient}:/orientdb/databases
-  #   environment:
-  #     ORIENTDB_ROOT_PASSWORD: foo
-
-  # btc_arcade:
-  #   container_name: btc_arcade
-  #   image: arcadedata/arcadedb:latest
-  #   ports:
-  #     - 2480:2480 # host : container port
-  #     - 2424:2424 # host : container port
-  #     - ${JANUSGRAPH_PORT:-8182}:${JANUSGRAPH_PORT:-8182}
-  #   networks:
-  #     - btc-network
-  #   environment:
-  #     JAVA_OPTS: >
-  #       -Darcadedb.server.rootPassword=playwithdata
-  #       -Darcadedb.dumpConfigAtStartup=true
-  #       -Darcadedb.server.plugins="GremlinServer:com.arcadedb.server.gremlin.GremlinServerPlugin"
-  #   restart: always
-  #   volumes:
-  #     - ${ARCADE_DB_FOLDER:-./data/btc_arcade}:/var/lib/arcadedb/databases
-
-  # btc_cass:
-  #   container_name: btc_cass
-  #   image: cassandra:3.11
-  #   healthcheck:
-  #       test: ["CMD", "cqlsh", "-e", "describe keyspaces" ]
-  #       interval: 5s
-  #       timeout: 5s
-  #       retries: 60
-  #   ports:
-  #     - "9042:9042"
-  #     - "9160:9160"
-  #   volumes:
-  #     - ${CASSANDRA_DB_FOLDER:-./data/btc_cass}:/var/lib/cassandra
-  #     - ./cassandra/cassandra.yaml:/etc/cassandra/cassandra.yaml
-  #   networks:
-  #     - btc-network
-  #   environment:
-  #     - CASSANDRA_START_RPC=true
-
-  # btc_neo4j:
-  #   container_name: btc_neo4j
-  #   image: neo4j:latest
-  #   restart: unless-stopped
-  #   ports:
-  #     - "7474:7474"
-  #     - "7687:7687"
-  #   volumes:
-  #     - ${NEO4J_DB_FOLDER:-./neo4j_data}/main_db/data:/data
-  #     - ${NEO4J_DB_FOLDER:-./neo4j_data}/main_db/logs:/logs
-  #   networks:
-  #     - btc-network
-  #   environment:
-  #     # Raise memory limits
-  #     # - NEO4J_dbms_memory_pagecache_size=1G
-  #     # - NEO4J_dbms.memory.heap.initial_size=1G
-  #     # - NEO4J_dbms_memory_heap_max__size=1G
-
-  #     - NEO4J_AUTH=${NEO4J_USERNAME}/${NEO4J_PASSWORD}
-
-  #     - NEO4J_dbms_connector_bolt_listen__address=:7687
-  #     - NEO4J_dbms_connector_bolt_advertised__address=:7687
-
-  #     - NEO4J_dbms_connector_http_listen__address=:7474
-  #     - NEO4J_dbms_connector_http_advertised__address=:7474
 
 networks:
   btc-network:
