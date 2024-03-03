@@ -1,5 +1,50 @@
 # Bitcoin Data Graph
 
+As part of my senior research project at VIU, I developed a graph representation of the Bitcoin blockchain data. This graph representation is intended to be used for tracing Bitcoin transactions and for developing algorithms to achieve it.
+
+It is fascinating to analyze the complex transactions on the Bitcoin blockchain. Since all transaction data is public, it is possible to trace the flow of Bitcoin from its creation to its current location. This is not a completely straightforward task, as it involves a bit of estimation and guesswork, but it allows for telling the source and destination of specific Bitcoins with some degree of certainty.
+
+Some visualizations of Bitcoin transactions are shown below. The first is the transaction history graph stemming from the second output of the 4th transaction on block 546, from address `1KAD5EnzzLtrSo2Da2G4zzD7uZrjk8zRAv`. The second shows all of the transactions going forward which stem from the block 9 coinbase output by address `12cbQLTFMXRnSzktFkuoG3eHoMeFtpTu3S`.
+
+![Transaction History Graph](./docs/images/1KAD%20history.jpg)
+
+![Transaction History Graph](./docs/images/12cb_paths.jpg)
+
+# Project Description
+
+The main point of this project is to effectively demonstrate Bitcoin tracing in a graph database, and to develop algorithms to achieve it.
+
+## Main Challenges in Tracing
+The main challanges when attempting to trace Bitcoin transaction histories are:
+- The massive scale of the Bitcoin blockchain dataset and the transactions therein,
+- The complexity of the Bitcoin transaction data model, and
+- the presence of "bad data", such as duplicate transactions.
+
+## Complexity of the Bitcoin Data Model
+To go into more detail about the complexity of the Bitcoin transaction data model, we need only examine some real transactions. There exist transactions where individuals send coin directly to themselves, ones where they send coin back and forth between themselves and other addresses multiple times, and ones where hundreds of addresses send coin to hundreds of other addresses in the same transaction.
+
+Because of the way the Bitcoin core protocol works, all of the addresses used to send coin in one transaction are presumably owned and controlled by one individual or entity.
+
+### Duplicate Transactions
+There are two occurrences of duplicate transactions on the Bitcoin Blockchain. On block 91,842, a transaction exists that has the same hash as a previous one. And on 91,880, a similar case occurred. This issue was fixed in BIP-30, so the issue will no longer occur. But despite this, we must still handle this corner case.
+
+When a transaction is duplicated, the nature of the Bitcoin core software ensues that only the newest transaction is spendable. For this reason, it makes sense that the graph representations of Bitcoin transaction data only consider the newest one.
+
+## Graph Representations
+
+### Address Proportion Graph
+In this graph representation, each node is an address, and each edge is a haircut proportion between two output nodes. Two addresses will be connected based on the addresses present in these output nodes. The sender will have an edge directed at the recipient.
+
+Due to the difficulty of tracing this data model, including the possibility for cycles between addresses, this approach was not selected for this project.
+
+### Output Proportion Graph
+In this graph representation, each node is an output, and each edge is a haircut proportion between two output nodes.
+
+Tracing this graph is straightforward, simply involving a backtracking depth-first traversal from a given node backwards to all of its senders. Since the graph only goes forwards, and thus contains no cycles, we only need to concern ourselves with looking backwards.
+
+Due to its simplicity, and the ease of developing algorithms, this approach was selected for this project.
+
+
 # Usage
 This project utilizes Docker and Docker Compose to manage its environment. A Makefile is provided to simplify the process of building, running, and managing the application.
 
@@ -9,6 +54,7 @@ Before you begin, ensure you have installed:
 
 - Docker
 - Docker Compose
+- Make
 
 ## Getting Started
 
@@ -115,54 +161,3 @@ docker-compose exec janusgraph bash
 :remote console
 mgmt = graph.openManagement()
 ```
-
-### Create an Index
-```bash
-# Create an Index
-mgmt = graph.openManagement()
-
-
-### Create a Vertex
-```bash
-# Create a Vertex
-g.addV('person').property('name', 'marko').property('age', 29)
-```
-
-### Create an Edge
-```bash
-# Create an Edge
-g.V().has('person', 'name', 'marko').addE('knows').to(g.V().has('person', 'name', 'vadas'))
-```
-
-
-# Project Description
-
-The main point of this project is to effectively demonstrate Bitcoin tracing in a graph database, and to develop algorithms to achieve it.
-
-## Main Challenges in Tracing
-The main challanges when attempting to trace Bitcoin transaction histories are:
-- The massive scale of the Bitcoin blockchain dataset and the transactions therein,
-- The complexity of the Bitcoin transaction data model, and
-- the presence of "bad data", such as duplicate transactions.
-
-## Complexity of the Bitcoin Data Model
-To go into more detail about the complexity of the Bitcoin transaction data model, we need only examine some real transactions. There exist transactions where individuals send coin directly to themselves, ones where they send coin back and forth between themselves and other addresses multiple times, and ones where hundreds of addresses send coin to hundreds of other addresses in the same transaction.
-
-Because of the way the Bitcoin core protocol works, all of the addresses used to send coin in one transaction are presumably owned and controlled by one individual or entity.
-
-### Duplicate Transactions
-There are two occurrences of duplicate transactions on the Bitcoin Blockchain. On block 91,842, a transaction exists that has the same hash as a previous one. And on 91,880, a similar case occurred. This issue was fixed in BIP-30, so the issue will no longer occur. But despite this, we must still handle this corner case.
-
-When a transaction is duplicated, the nature of the Bitcoin core software ensues that only the newest transaction is spendable. For this reason, it makes sense that the graph representations of Bitcoin transaction data only consider the newest one.
-
-# Graph Representations
-
-## Address Proportion Graph
-In this graph representation, each node is an address, and each edge is a haircut proportion between two output nodes. Two addresses will be connected based on the addresses present in these output nodes. The sender will have an edge directed at the recipient.
-
-Tracing this graph ... TODO: 
-
-## Output Proportion Graph
-In this graph representation, each node is an output, and each edge is a haircut proportion between two output nodes.
-
-Tracing this graph is straightforward, simply involving a backtracking depth-first traversal from a given node backwards to all of its senders. Since the graph only goes forwards, and thus contains no cycles, we only need to concern ourselves with looking backwards.

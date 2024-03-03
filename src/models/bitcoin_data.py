@@ -144,8 +144,11 @@ class Output(models.base.Base):
 
     def pretty_label(self):
         location = f"{self.transaction.block_height}:{self.transaction.index_in_block}:{self.index_in_tx}"
-        value_str = f"{self.value / BITCOIN_TO_SATOSHI}"
-        addr_str = self.address.addr[:4]
+        value_str = "{:.8f}".format(self.value / BITCOIN_TO_SATOSHI)
+        if self.address is None:
+            addr_str = "No Address"
+        else:
+            addr_str = self.address.addr[:4]
         return f"{location} {addr_str} ({value_str})"
 
     def __repr__(self):
@@ -182,6 +185,12 @@ class Input(models.base.Base):
 
     prev_out = relationship("Output", passive_deletes=True)
     transaction = relationship("Tx", back_populates="inputs", passive_deletes=True)
+
+    def pretty_label(self):
+        location = f"{self.transaction.block_height}:{self.transaction.index_in_block}:{self.index_in_tx}"
+        value_str = "{:.8f}".format(self.prev_out.value / BITCOIN_TO_SATOSHI)
+        addr_str = self.prev_out.address.addr[:4]
+        return f"{location} {addr_str} ({value_str})"
 
     def __repr__(self):
         return f"<Input(id={self.id})>"

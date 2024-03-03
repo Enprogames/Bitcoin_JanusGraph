@@ -8,7 +8,7 @@ from blockchain_data_provider import PersistentBlockchainAPIData
 from graph_populate import PopulateOutputProportionGraph
 
 
-@pytest.mark.skip("TODO: test that the graph is populated correctly")
+# @pytest.mark.skip("TODO: test that the graph is populated correctly")
 def test_custom_proportions():
     """Some custom input/output proportions are expected to be present in the database.
     The graph database will be populated with these. We will test that are set correctly.
@@ -30,3 +30,7 @@ def test_custom_proportions():
         populator.reset_manual_edge_proportions(session)
 
     # TODO: test that all proportions are reset to the original haircut method values
+
+
+# Run just this test with:
+# pytest -s -k test_custom_proportions tests/test_graph_data.py

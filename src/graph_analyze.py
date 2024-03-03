@@ -213,10 +213,10 @@ class GraphAnalyzer:
 
             if 'address_id' in vertex_properties:
                 address_id = int(vertex_properties['address_id'])
+                nx_graph.nodes[vertex_properties[T.id]].update({'address_id': int(address_id)})
             else:
                 address_id = None
-
-            nx_graph.nodes[vertex_properties[T.id]].update({'address_id': int(address_id)})
+                print(f"Warning: output {vertex_properties['output_id']} has no address")
 
         for edge_properties in edge_items:
             in_node = edge_properties[Direction.IN]
@@ -245,7 +245,7 @@ class GraphAnalyzer:
                     'tx_index_in_block': output.transaction.index_in_block,
                     'index_in_tx': output.index_in_tx,
                     'value': output.value,
-                    'address': output.address.addr,
+                    'address': output.address.addr if output.address is not None else None,
                     'pretty_label': output.pretty_label()
                 })
 

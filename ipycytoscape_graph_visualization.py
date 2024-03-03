@@ -3,19 +3,24 @@ from ipycytoscape import CytoscapeWidget
 
 
 # Create visualizations
-def visualize_graph(G, layout: str = 'cola', edge_style_lambda=None):
+def visualize_graph(G, layout: str = 'cola', node_color_map: dict = {}, edge_style_lambda=None):
     cyto_graph = CytoscapeWidget()
     cyto_graph.graph.add_graph_from_networkx(G, directed=isinstance(G, nx.DiGraph))
     cyto_graph.wheel_sensitivity = 0.2
 
     # Create a color map for nodes in the same component
     colors = ['red', 'green', 'blue', 'yellow', 'purple', 'orange', 'cyan']
-    # color_map = {node: colors[i % len(colors)] for i, comp in enumerate(components) for node in comp}
-    color_map = {}
+
+    default_vertex_style = {
+        'label': 'data(id)',
+        'background-color': 'grey',
+        'color': 'grey',
+        'width': 20
+    }
 
     # Apply node colors based on components
     for node in cyto_graph.graph.nodes:
-        node.data['color'] = color_map.get(int(node.data['id']), 'grey')
+        node.data['color'] = node_color_map.get(int(node.data['id']), 'grey')
 
     # Default edge style
     default_edge_style = {

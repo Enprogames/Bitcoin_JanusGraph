@@ -17,6 +17,7 @@ pyjson5
 pytest
 python-dotenv
 requests
+rich
 SQLAlchemy
 tqdm
 pgcli
